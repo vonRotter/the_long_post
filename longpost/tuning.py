@@ -102,6 +102,22 @@ SEASON_PROFILES = {
     "TUNNEL": {"AUTUMN": OPEN,   "WINTER": OPEN,   "SPRING": OPEN,   "SUMMER": OPEN},
 }
 
+# How far the view may pan before the cached document is re-inked.
+#
+# Panning does not change the chart, it translates it. So the document is
+# re-inked at an offset rounded to this grid, onto a surface this much larger
+# than the chart rect, and blitted back at the difference: a drag re-inks once
+# every 160 px of travel instead of once a frame. Borrowed from map maker.
+PAN_QUANTUM = 160
+
+# The ground layer's re-ink is spread over frames, this many milliseconds at a
+# time, so no single frame pays for the whole sheet.
+INK_SLICE_MS = 6.0
+
+# While a zoom is still easing, the cached document is scaled rather than
+# re-inked, and re-inked once the camera settles.
+ZOOM_SETTLE = 0.004
+
 # --- motion ---------------------------------------------------------------
 
 REDRAW_SECONDS = 1.0              # the season change re-inks the chart

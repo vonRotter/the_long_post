@@ -86,6 +86,7 @@ def main(argv=None):
 
     game = Game(seed)
     paper = ink.make_paper((T.WINDOW_W, T.WINDOW_H), seed)
+    grain = ink.make_grain((T.WINDOW_W, T.WINDOW_H), seed)
 
     dragging = False
     running = True
@@ -108,6 +109,8 @@ def main(argv=None):
         game.panel.draw(screen, game)
         game.log.draw(screen)
         game.overlay.draw(screen, game)
+        # the sheet's grain lies on top of the ink, not under it
+        screen.blit(grain, (0, 0), special_flags=pygame.BLEND_MULT)
         pygame.display.flip()
 
     pygame.quit()

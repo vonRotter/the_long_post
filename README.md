@@ -63,6 +63,26 @@ the cursor, zoom and pan persist between turns, the chart is not re-inked every
 frame) · `tests/test_determinism.py` · `tests/test_tone.py` (a lint pass over
 every string the game can write).
 
+## Borrowed from map maker
+
+Three things were taken from the `mapmaker` repo, which solves a neighbouring
+problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
+
+* **The pan-quantised layer cache.** Panning does not change the document, it
+  translates it. So the chart is inked onto a bitmap larger than the chart rect
+  at a camera centre rounded to a grid, and blitted back at the difference. A
+  drag re-inks as it eats the margin rather than once a frame.
+* **Splitting the sheet from what is on it,** and inking the expensive half a
+  few milliseconds at a time across frames. The ground — sea, ice, depth lines,
+  coast, stipple — changes only with the season and the view. The network —
+  legs, settlements, marks — is cheap and changes constantly, including every
+  frame of the season redraw, so it is always finished in one.
+* **Grain above the ink, not under it,** blitted with a multiply. Real grain
+  lies on top of what was drawn, so a line crossing a rough patch is broken by
+  it. Its chart depth contours came over too: our coastlines are radial by
+  construction, so an inward or seaward offset can be read straight off the
+  shape and cannot fold at an inlet the way offsetting a polygon does.
+
 ## Decisions taken so far
 
 * **The starting five are a connected cluster**, chosen near the middle of the
@@ -73,15 +93,25 @@ every string the game can write).
   inland mud, sea only half open.
 * **Standing and desperation are carried on the settlement now** but do nothing
   until M2. Nothing hostile happens in M0, so nothing is untraceable yet.
+* **No money** (§6.5, settled). Goods and standing only. Nothing in the code
+  assumes a currency and nothing will.
 
 ## Open questions, at the milestone where they bite
 
 * Numeric risk or bands (§6.2, decide at M2) — the edge carries a `danger`
   float and the panel has no risk readout yet, so either is still cheap.
-* Money at all (§6.5, decide at M1) — nothing in the current code assumes it.
 
-## Known tuning debt
+## Frame budget
 
-Re-inking the whole chart costs roughly 35 ms, so a drag runs near 30 fps while
-an idle chart runs at 60. The cost is almost entirely the sea tone; if it
-becomes annoying at FOCUS, hatch spacing is the dial.
+Measured headless at 1280 × 720, seed 3, in milliseconds per frame:
+
+| | median | worst |
+|---|---|---|
+| idle, at CHART and at FOCUS | 4.7 | 5.3 |
+| dragging 600 px | 12.4 | 19.8 |
+| a five-notch zoom | 7.1 | 17.9 |
+| the season re-ink, over its second | 12.0 | 20.7 |
+
+Before the cache rework a drag cost about 35 ms *every* frame. The dials are
+`PAN_QUANTUM` (how far the view may travel before a re-ink), `INK_SLICE_MS`
+(how much ink work a frame may do), and hatch spacing.

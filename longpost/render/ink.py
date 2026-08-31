@@ -101,6 +101,25 @@ def make_paper(size, seed) -> pygame.Surface:
     return surf
 
 
+def make_grain(size, seed) -> pygame.Surface:
+    """The speckle that sits *above* the ink, blitted with BLEND_MULT.
+
+    Real grain lies on top of what was drawn rather than under it, so a line
+    crossing a rough patch of the sheet is broken by it. Borrowed from map
+    maker, where the same layer is a multiply over the finished map.
+    """
+    w, h = size
+    gen = rng("grain", seed, w, h)
+    field = 255.0 - _upsample(gen.normal(0.0, 1.0, (h // 3 + 2, w // 3 + 2)), (h, w)) * 5.0
+    speck = gen.random((h, w)) < 0.015
+    field -= speck * 26.0
+    field = np.clip(field, 0, 255).astype(np.uint8)
+    surf = pygame.Surface((w, h))
+    pygame.surfarray.blit_array(surf, np.transpose(np.repeat(field[:, :, None], 3, axis=2),
+                                                   (1, 0, 2)))
+    return surf
+
+
 # --- 3.1 the most important function in the project -----------------------
 
 

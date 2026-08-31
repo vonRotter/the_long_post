@@ -80,3 +80,64 @@ def test_a_season_change_re_inks_the_chart(display):
 def test_detail_arrives_progressively_rather_than_as_a_mode_switch():
     assert T.ZOOM_MIN < T.DETAIL_NAMES < T.DETAIL_HULLS < T.DETAIL_ROOFS < T.ZOOM_MAX
     assert T.ZOOM_CHART < T.ZOOM_FOCUS < T.ZOOM_MAX
+
+
+def test_a_short_pan_does_not_re_ink_the_chart(display):
+    """Panning translates the document; it does not change it."""
+    game = Game(3)
+    settle(game)
+    for _ in range(4):
+        game.chart.draw(display)
+    before = game.chart.ground.rebuilds
+    for _ in range(10):
+        game.chart.camera.pan_screen(-6, -2)
+        game.chart.update(1 / 60)
+        game.chart.draw(display)
+    assert game.chart.ground.rebuilds == before
+
+
+def test_a_long_pan_re_inks_once_it_runs_off_the_margin(display):
+    game = Game(3)
+    settle(game)
+    for _ in range(4):
+        game.chart.draw(display)
+    before = game.chart.ground.rebuilds
+    travelled = 0
+    while travelled < 600:
+        game.chart.camera.pan_screen(-10, 0)
+        travelled += 10
+        game.chart.update(1 / 60)
+        game.chart.draw(display)
+    # the document is re-inked as the pan eats the bitmap's margin, not per frame
+    re_inks = game.chart.ground.rebuilds - before
+    assert 1 <= re_inks <= 6
+
+
+def test_the_ground_is_inked_across_several_frames(display):
+    """No single frame pays for the whole sheet."""
+    game = Game(3)
+    game.chart.draw(display)                  # the first bitmap must finish at once
+    settle(game)
+    game.chart.ground.dirty = True
+    game.chart.update(1 / 60)
+    game.chart.draw(display)
+    assert game.chart.ground.pending is not None
+    for _ in range(30):
+        game.chart.update(1 / 60)
+        game.chart.draw(display)
+    assert game.chart.ground.pending is None
+
+
+def test_a_zoom_in_flight_does_not_re_ink_every_frame(display):
+    game = Game(3)
+    settle(game)
+    game.chart.draw(display)
+    before = game.chart.ground.rebuilds
+    game.chart.camera.zoom_by(T.ZOOM_STEP ** 5, (400, 300))
+    for _ in range(10):
+        game.chart.update(1 / 60)
+        game.chart.draw(display)
+        assert not game.chart.camera.settled
+    assert game.chart.ground.rebuilds == before
+    # and zooming in never invalidates a bitmap: it already holds more world
+    assert game.chart.ground.slack(game.chart.camera, game.chart.rect) > 0

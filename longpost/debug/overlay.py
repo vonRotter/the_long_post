@@ -33,8 +33,9 @@ class Overlay:
 
         if self.edges:
             for edge in game.world.known_edges():
-                a, b = view._edge_endpoints(edge)
-                mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+                a = view.camera.world_to_screen(game.world.settlements[edge.a].pos)
+                b = view.camera.world_to_screen(game.world.settlements[edge.b].pos)
+                mid = ((a[0] + b[0]) / 2 - view.rect.x, (a[1] + b[1]) / 2 - view.rect.y)
                 profile = "".join(edge.availability(s)[0] for s in T.SEASONS)
                 text = (f"{edge.terrain[:4].lower()} {edge.days:g}d {profile}"
                         f" r{edge.danger:.2f}")
@@ -43,7 +44,8 @@ class Overlay:
 
         if self.pressure:
             for s in game.world.known_settlements():
-                p = view._local(s.pos)
+                sx, sy = view.camera.world_to_screen(s.pos)
+                p = (sx - view.rect.x, sy - view.rect.y)
                 lettering.draw(layer, f"d{s.desperation:.0f} st{s.standing:.0f}",
                                (p[0] + 4, p[1] + 10), size=9, alpha=200, colour=T.OXIDE)
 

@@ -54,9 +54,11 @@ class WorldMap:
     seed: int
     settlements: list
     edges: list
-    land: list        # polygons: the main mass and its islands
-    ridge: list       # the mountain spine, as a polyline
-    soundings: list   # (x, y, number) — texture only, they mean nothing
+    land: list            # polygons: the main mass and its islands
+    ridge: list           # the mountain spine, as a polyline
+    soundings: list       # (x, y, number) — texture only, they mean nothing
+    coast_offsets: list   # inward lines behind the shore, nearest first
+    depth_lines: list     # seaward contours, the depths a chart carries
 
     def settlement(self, sid: int) -> Settlement:
         return self.settlements[sid]
@@ -110,7 +112,12 @@ class WorldMap:
 
 
 def _blob(gen, centre, radius, lobes=9, roughness=0.30, points=44):
-    """A coastline-shaped polygon: radial noise, no straight anything."""
+    """A coastline-shaped polygon: radial noise, no straight anything.
+
+    Radial by construction, which is what lets `_offset_ring` shrink or grow it
+    without the folding that offsetting an arbitrary polygon produces at every
+    inlet.
+    """
     t = np.linspace(0, 2 * np.pi, points, endpoint=False)
     r = np.ones(points)
     for harmonic in (1, 2, 3, 5, 8):
@@ -118,6 +125,37 @@ def _blob(gen, centre, radius, lobes=9, roughness=0.30, points=44):
         r += (roughness / harmonic) * np.sin(harmonic * lobes / 3.0 * t + phase)
     r = radius * (r / r.mean())
     return list(zip(centre[0] + np.cos(t) * r, centre[1] + np.sin(t) * r * 0.8))
+
+
+def _offset_ring(polygon, centre, distance):
+    """The polygon moved `distance` inward (negative: seaward), radially."""
+    ring = []
+    for x, y in polygon:
+        dx, dy = x - centre[0], y - centre[1]
+        r = float(np.hypot(dx, dy))
+        if r < 1e-6:
+            continue
+        k = max(0.05, (r - distance) / r)
+        ring.append((centre[0] + dx * k, centre[1] + dy * k))
+    return ring
+
+
+def _open_water_runs(ring, land, minimum=4):
+    """The parts of a closed ring that lie in open water, as polylines."""
+    wet = [not _on_land(p, land) for p in ring]
+    if all(wet):
+        return [list(ring) + [ring[0]]]
+    runs, current = [], []
+    for point, is_wet in zip(ring + ring[:1], wet + wet[:1]):
+        if is_wet:
+            current.append(point)
+        elif current:
+            if len(current) >= minimum:
+                runs.append(current)
+            current = []
+    if len(current) >= minimum:
+        runs.append(current)
+    return runs
 
 
 def _on_land(point, land):
@@ -194,8 +232,10 @@ def generate(seed: int) -> WorldMap:
     gen = rng("world", seed)
 
     # land: one main mass and a few islands
-    land = [_blob(gen, (T.WORLD_W * 0.42, T.WORLD_H * 0.5),
-                  min(T.WORLD_W, T.WORLD_H) * 0.46, lobes=11, roughness=0.34)]
+    main_centre = (T.WORLD_W * 0.42, T.WORLD_H * 0.5)
+    land = [_blob(gen, main_centre, min(T.WORLD_W, T.WORLD_H) * 0.46,
+                  lobes=11, roughness=0.34)]
+    land_centres = [main_centre]
     wanted = int(gen.integers(*T.COAST_ISLANDS))
     for _ in range(wanted * 12):
         if len(land) > wanted:
@@ -207,6 +247,7 @@ def generate(seed: int) -> WorldMap:
         if any(_on_land(p, land) for p in island):
             continue      # an island that touches the mainland is not an island
         land.append(island)
+        land_centres.append(centre)
 
     # the mountain spine, wandering down the main mass
     ridge = []
@@ -273,8 +314,24 @@ def generate(seed: int) -> WorldMap:
             continue
         soundings.append((p[0], p[1], int(gen.integers(3, 96))))
 
+    # a chart shows what the water is doing: inward lines behind the shore and
+    # depth contours out at sea, both read off the same shape and both spaced
+    # by the size of the mass, so an island is not ringed like a continent
+    coast_offsets = [[], []]
+    depth_lines = [[], []]
+    for poly, centre in zip(land, land_centres):
+        reach = float(np.mean([np.hypot(p[0] - centre[0], p[1] - centre[1])
+                               for p in poly]))
+        for i, inward in enumerate((0.035, 0.075)):
+            coast_offsets[i].append(_offset_ring(poly, centre, reach * inward))
+        for i, seaward in enumerate((0.06, 0.15)):
+            ring = _offset_ring(poly, centre, -reach * seaward)
+            # a depth line that runs over another island is not a depth line
+            depth_lines[i].extend(_open_water_runs(ring, land))
+
     return WorldMap(seed=seed, settlements=settlements, edges=edges,
-                    land=land, ridge=ridge, soundings=soundings)
+                    land=land, ridge=ridge, soundings=soundings,
+                    coast_offsets=coast_offsets, depth_lines=depth_lines)
 
 
 
