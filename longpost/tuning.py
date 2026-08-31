@@ -1,0 +1,113 @@
+"""Every constant in the game.
+
+Nothing here is derived at runtime and nothing outside this module invents a
+number. The build spec requires all tuning to live in one place.
+"""
+
+# --- window ---------------------------------------------------------------
+
+WINDOW_W = 1280
+WINDOW_H = 720
+FPS = 60
+TITLE = "The Long Post"
+
+# Chart on the left, panel on the right, log along the bottom.
+PANEL_W = 340
+LOG_H = 140
+CHART_RECT = (0, 0, WINDOW_W - PANEL_W, WINDOW_H - LOG_H)
+PANEL_RECT = (WINDOW_W - PANEL_W, 0, PANEL_W, WINDOW_H)
+LOG_RECT = (0, WINDOW_H - LOG_H, WINDOW_W - PANEL_W, LOG_H)
+
+# --- paper and ink --------------------------------------------------------
+
+PAPER_BASE = (232, 226, 212)      # warm off-white
+PAPER_FIBRE = 9                   # coarse fibre amplitude
+PAPER_GRAIN = 5                   # fine grain amplitude
+PAPER_VIGNETTE = 0.20             # darkening toward the edges
+PAPER_STAINS = (3, 5)             # count range, placed per seed
+
+INK = (26, 28, 34)                # near-black, cold-leaning, never pure black
+OXIDE = (146, 62, 48)             # the one accent, corrections and losses only
+
+# weight -> (passes, alphas, offset spread in px)
+INK_WEIGHTS = {
+    "faint":      (1, (70,), 0.0),
+    "normal":     (2, (95, 165), 0.5),
+    "heavy":      (3, (110, 175, 235), 0.9),
+    "correction": (3, (150, 205, 250), 1.4),
+}
+
+INK_SEGMENT_PX = 8.0              # subdivision length of a stroke
+INK_WOBBLE_BASE = 0.55            # px of displacement, short lines
+INK_WOBBLE_PER_PX = 0.010         # extra displacement per px of length
+INK_WOBBLE_MAX = 4.5
+INK_ENDPOINT_WEIGHT = 1           # extra deposit passes at pen start and stop
+
+HATCH_SPACING_MIN = 3.0           # px between hatch lines at density 1.0
+HATCH_SPACING_MAX = 22.0          # px between hatch lines at density 0.0
+
+# --- camera ---------------------------------------------------------------
+
+ZOOM_CHART = 1.0                  # the whole network
+ZOOM_FOCUS = 6.0                  # one edge or one settlement
+ZOOM_MIN = 0.55
+ZOOM_MAX = 9.0
+ZOOM_STEP = 1.16                  # per wheel notch or +/- press
+CAMERA_EASE = 0.24                # ease-out per frame toward the target
+CAMERA_SNAP = 0.35                # px/zoom epsilon below which the ease ends
+
+# Detail arrives progressively; these are the thresholds it arrives at.
+DETAIL_NAMES = 0.8
+DETAIL_ROOFS = 3.0
+DETAIL_HULLS = 2.2
+DETAIL_MEASURE = 3.4
+
+# --- world ----------------------------------------------------------------
+
+WORLD_W = 2000.0
+WORLD_H = 1200.0
+
+SETTLEMENTS_START = 5
+SETTLEMENTS_MAX = 20
+SETTLEMENT_MIN_SPACING = 190.0
+SETTLEMENT_PLACEMENT_TRIES = 4000
+
+POP_RANGE = (40, 260)
+STANDING_START = 55
+
+COAST_ISLANDS = (2, 4)
+RIDGE_KNOTS = 6                   # control points of the mountain spine
+
+EDGE_NEIGHBOURS = 3               # k-nearest candidate edges per settlement
+EDGE_MAX_LENGTH = 760.0
+TRAVEL_DAYS_PER_UNIT = 0.026      # world units -> travel days
+ICE_ROAD_MAX_LENGTH = 520.0       # sea crossings longer than this never freeze
+TUNNEL_SITE_CHANCE = 0.22         # edges carrying a collapsed pre-collapse line
+
+# --- seasons --------------------------------------------------------------
+
+SEASONS = ("AUTUMN", "WINTER", "SPRING", "SUMMER")
+YEARS = 10
+TURNS = YEARS * len(SEASONS)      # a full run is 40 turns
+START_YEAR = 1
+
+OPEN, HARD, CLOSED = "OPEN", "HARD", "CLOSED"
+
+# terrain -> availability per season
+SEASON_PROFILES = {
+    "COAST":  {"AUTUMN": OPEN,   "WINTER": CLOSED, "SPRING": HARD,   "SUMMER": OPEN},
+    "INLAND": {"AUTUMN": OPEN,   "WINTER": HARD,   "SPRING": HARD,   "SUMMER": OPEN},
+    "PASS":   {"AUTUMN": OPEN,   "WINTER": HARD,   "SPRING": CLOSED, "SUMMER": OPEN},
+    "ICE":    {"AUTUMN": CLOSED, "WINTER": OPEN,   "SPRING": CLOSED, "SUMMER": CLOSED},
+    "TUNNEL": {"AUTUMN": OPEN,   "WINTER": OPEN,   "SPRING": OPEN,   "SUMMER": OPEN},
+}
+
+# --- motion ---------------------------------------------------------------
+
+REDRAW_SECONDS = 1.0              # the season change re-inks the chart
+RESOLVE_SECONDS = 6.0
+
+# --- log ------------------------------------------------------------------
+
+LOG_LINES_KEPT = 400
+LOG_LINES_SHOWN = 7
