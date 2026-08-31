@@ -289,7 +289,7 @@ class ChartView:
         stages += [lambda surf, level=level: self._draw_water_lines(surf, level)
                    for level in range(len(self.world.depth_lines)
                                       + len(self.world.coast_offsets))]
-        for index in range(len(self.world.land)):
+        for index in range(len(self.world.coast_paths)):
             stages.append(lambda surf, i=index: self._draw_coast_of(surf, i))
         stages.append(self._draw_ridge)
         stages.append(self._draw_soundings)
@@ -306,9 +306,9 @@ class ChartView:
         Drawn in bands so a re-ink can stop between them.
         """
         zoom = self.camera.zoom
-        density = 0.10 + 0.10 * min(zoom, 3.0)
+        density = 0.40 + 0.06 * min(zoom, 4.0)
         spacing = T.HATCH_SPACING_MAX + (T.HATCH_SPACING_MIN - T.HATCH_SPACING_MAX) * density
-        spacing = max(spacing, 12.0)
+        spacing = max(spacing, 11.0)
         angle = 0.30 if self.season != "WINTER" else 0.16
         w, h = self._render_size
         mask = self._mask
@@ -340,15 +340,20 @@ class ChartView:
         surf.unlock()
 
     def _draw_coast_of(self, surf, index):
-        """One landmass: its shoreline and the light stipple inland."""
-        poly = self.world.land[index]
-        pts = [self._local(p) for p in poly]
-        if not any(self._visible(p, margin=200) for p in pts):
+        """One shore: the mainland's coastline or an island, and the light
+        stipple on the land behind it."""
+        path, closed = self.world.coast_paths[index]
+        pts = [self._local(p) for p in path]
+        if not any(self._visible(p, margin=250) for p in pts):
             return
-        step = max(1, len(pts) // 26)
-        ink.ink_curve(surf, pts[::step], "normal", ink.seed_of("coast", index),
-                      closed=True, samples=5)
-        self._draw_land_tone(surf, index, pts)
+        step = max(1, len(pts) // (34 if not closed else 26))
+        drawn = pts[::step]
+        if not closed and drawn[-1] != pts[-1]:
+            drawn.append(pts[-1])
+        ink.ink_curve(surf, drawn, "normal", ink.seed_of("coast", index),
+                      closed=closed, samples=5)
+        self._draw_land_tone(surf, index,
+                             [self._local(p) for p in self.world.land[index]])
 
     def _draw_ridge(self, surf):
         """The mountain spine, as sparse hatching along its length."""
@@ -401,9 +406,9 @@ class ChartView:
     def _draw_land_tone(self, surf, index, screen_poly):
         """Land carries very light stipple. There are no filled areas anywhere."""
         clip = pygame.Rect(0, 0, *self._render_size)
-        ink.stipple(surf, screen_poly, 0.085 + 0.04 * min(self.camera.zoom, 3.0),
+        ink.stipple(surf, screen_poly, 0.24 + 0.06 * min(self.camera.zoom, 3.0),
                     ink.seed_of("land", index, round(self.camera.zoom, 1)),
-                    alpha=78, clip=clip)
+                    alpha=88, clip=clip, bounds=clip)
 
     def _draw_soundings(self, surf):
         if self.camera.zoom < 0.85:

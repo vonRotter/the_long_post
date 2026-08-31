@@ -21,8 +21,8 @@ LOG_RECT = (0, WINDOW_H - LOG_H, WINDOW_W - PANEL_W, LOG_H)
 # --- paper and ink --------------------------------------------------------
 
 PAPER_BASE = (232, 226, 212)      # warm off-white
-PAPER_FIBRE = 9                   # coarse fibre amplitude
-PAPER_GRAIN = 5                   # fine grain amplitude
+PAPER_FIBRE = 5                   # coarse fibre amplitude
+PAPER_GRAIN = 4                   # fine grain amplitude
 PAPER_VIGNETTE = 0.20             # darkening toward the edges
 PAPER_STAINS = (3, 5)             # count range, placed per seed
 
@@ -64,22 +64,32 @@ DETAIL_MEASURE = 3.4
 
 # --- world ----------------------------------------------------------------
 
-WORLD_W = 2000.0
-WORLD_H = 1200.0
+WORLD_W = 2400.0
+WORLD_H = 1400.0
 
 SETTLEMENTS_START = 5
 SETTLEMENTS_MAX = 20
-SETTLEMENT_MIN_SPACING = 190.0
-SETTLEMENT_PLACEMENT_TRIES = 4000
+SETTLEMENT_MIN_SPACING = 255.0
+SETTLEMENT_PLACEMENT_TRIES = 9000
+SETTLEMENT_COAST_BAND = 150.0     # within this of the shore is a coastal site
+SETTLEMENT_INLAND_CHANCE = 0.4    # how often a site well inland is taken anyway
 
 POP_RANGE = (40, 260)
 STANDING_START = 55
 
-COAST_ISLANDS = (2, 4)
-RIDGE_KNOTS = 6                   # control points of the mountain spine
+# The land is a coast, not an island: open sea to the west, mainland to the
+# east, and a scatter of smaller islands out in the water.
+COAST_X = 0.50                    # where the shore sits, as a fraction of width
+COAST_WANDER = 90.0              # how far the shore drifts from that line
+COAST_FJORDS = (3, 6)             # water cutting inland
+FJORD_DEPTH = (170.0, 460.0)
+COAST_ISLANDS = (3, 7)
+ISLAND_RADIUS = (55.0, 150.0)
+RIDGE_KNOTS = 7                   # control points of the mountain spine
+RIDGE_INLAND = 320.0              # how far behind the shore the spine runs
 
 EDGE_NEIGHBOURS = 3               # k-nearest candidate edges per settlement
-EDGE_MAX_LENGTH = 760.0
+EDGE_MAX_LENGTH = 820.0
 TRAVEL_DAYS_PER_UNIT = 0.026      # world units -> travel days
 ICE_ROAD_MAX_LENGTH = 520.0       # sea crossings longer than this never freeze
 TUNNEL_SITE_CHANCE = 0.22         # edges carrying a collapsed pre-collapse line

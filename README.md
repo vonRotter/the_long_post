@@ -85,6 +85,10 @@ problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
 
 ## Decisions taken so far
 
+* **The land is a coast, not a continent.** Open sea to the west with a scatter
+  of islands in it, a shore that fjords cut into, and the mainland behind it.
+  Settlements sit mostly within reach of the water, which is what makes this a
+  post service worth running by boat and sled.
 * **The starting five are a connected cluster**, chosen near the middle of the
   map and biased toward a crossing that freezes, so the seasonal inversion is
   on the player's chart from the first winter rather than found in year four.

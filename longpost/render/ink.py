@@ -374,13 +374,23 @@ def hatch(surface, region, density, angle, seed, weight="faint", color=T.INK, cl
 # --- 3.4 ------------------------------------------------------------------
 
 
-def stipple(surface, region, density, seed, color=T.INK, alpha=110, clip=None):
-    """Dots at controlled density. Snowfield, ice, the soft edge of hatching."""
+def stipple(surface, region, density, seed, color=T.INK, alpha=110, clip=None,
+            bounds=None):
+    """Dots at controlled density. Snowfield, ice, the soft edge of hatching.
+
+    `bounds` limits where the dots are sampled from, so tone on a landmass that
+    runs off the sheet costs what is on the sheet rather than what exists.
+    """
     poly = np.asarray(region, dtype=np.float64)
     if len(poly) < 3 or density <= 0.0:
         return
     lo = poly.min(axis=0)
     hi = poly.max(axis=0)
+    if bounds is not None:
+        lo = np.maximum(lo, [bounds.left, bounds.top])
+        hi = np.minimum(hi, [bounds.right, bounds.bottom])
+        if hi[0] <= lo[0] or hi[1] <= lo[1]:
+            return
     area = float((hi[0] - lo[0]) * (hi[1] - lo[1]))
     count = int(area * density * 0.010)
     if count <= 0:

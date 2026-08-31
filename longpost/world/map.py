@@ -8,10 +8,11 @@ so terrain can be decided; on the chart, screen length is roughly travel days.
 from dataclasses import dataclass, field
 
 import numpy as np
+import pygame
 
 from .. import tuning as T
 from ..data import names as name_data
-from ..render.ink import point_in_polygon, rng, seed_of
+from ..render.ink import point_in_polygon, points_in_polygon, rng, seed_of
 from . import season as season_mod
 from .settlement import Settlement
 
@@ -59,6 +60,7 @@ class WorldMap:
     soundings: list       # (x, y, number) — texture only, they mean nothing
     coast_offsets: list   # inward lines behind the shore, nearest first
     depth_lines: list     # seaward contours, the depths a chart carries
+    coast_paths: list     # (points, closed) — the shore as it is inked
 
     def settlement(self, sid: int) -> Settlement:
         return self.settlements[sid]
@@ -127,6 +129,67 @@ def _blob(gen, centre, radius, lobes=9, roughness=0.30, points=44):
     return list(zip(centre[0] + np.cos(t) * r, centre[1] + np.sin(t) * r * 0.8))
 
 
+def _coastline(gen):
+    """The shore: a wandering north-south line with water cutting into it.
+
+    Sea to the west, mainland to the east. Returned as an open polyline running
+    off both ends of the world, so it can be inked as a shoreline rather than
+    as the outline of a shape.
+    """
+    n = 150
+    ys = np.linspace(-80.0, T.WORLD_H + 80.0, n)
+    base = T.WORLD_W * T.COAST_X
+
+    drift = np.zeros(n)
+    for harmonic, amplitude in ((1, 1.0), (2, 0.4), (5, 0.16)):
+        phase = gen.uniform(0, 2 * np.pi)
+        drift += amplitude * np.sin(harmonic * np.pi * np.linspace(0, 2, n) + phase)
+    xs = base + drift / 1.56 * T.COAST_WANDER
+
+    # fjords, and the headlands between them
+    for _ in range(int(gen.integers(*T.COAST_FJORDS))):
+        centre = int(gen.integers(6, n - 6))
+        width = int(gen.integers(2, 5))
+        depth = float(gen.uniform(*T.FJORD_DEPTH))
+        for i in range(max(0, centre - width), min(n, centre + width + 1)):
+            fall = 1.0 - abs(i - centre) / (width + 1.0)
+            xs[i] += depth * fall ** 0.45
+    for _ in range(int(gen.integers(2, 5))):
+        centre = int(gen.integers(6, n - 6))
+        width = int(gen.integers(5, 12))
+        reach = float(gen.uniform(90.0, 260.0))
+        for i in range(max(0, centre - width), min(n, centre + width + 1)):
+            fall = 1.0 - abs(i - centre) / (width + 1.0)
+            xs[i] -= reach * fall ** 1.4
+
+    xs = np.clip(xs, 220.0, T.WORLD_W - 320.0)
+    return list(zip(xs.tolist(), ys.tolist()))
+
+
+def _mainland(coast):
+    """The shore closed off along the eastern edge, for the land test."""
+    return list(coast) + [(T.WORLD_W + 200.0, T.WORLD_H + 200.0),
+                          (T.WORLD_W + 200.0, -200.0)]
+
+
+def _offset_coast(coast, distance, smoothing=5):
+    """The shore moved `distance` seaward (negative: inland).
+
+    The line is smoothed first: an offset taken off the raw shore folds inside
+    every fjord, and a fold reads as a mistake on a chart rather than as depth.
+    """
+    pts = np.asarray(coast, dtype=float)
+    kernel = np.ones(smoothing) / smoothing
+    xs = np.convolve(np.pad(pts[:, 0], (smoothing, smoothing), mode="edge"),
+                     kernel, mode="same")[smoothing:-smoothing]
+    smooth = np.stack([xs, pts[:, 1]], axis=1)
+    tangent = np.gradient(smooth, axis=0)
+    length = np.hypot(tangent[:, 0], tangent[:, 1])
+    length[length < 1e-9] = 1.0
+    normal = np.stack([-tangent[:, 1] / length, tangent[:, 0] / length], axis=1)
+    return [tuple(p) for p in smooth + normal * distance]
+
+
 def _offset_ring(polygon, centre, distance):
     """The polygon moved `distance` inward (negative: seaward), radially."""
     ring = []
@@ -140,13 +203,16 @@ def _offset_ring(polygon, centre, distance):
     return ring
 
 
-def _open_water_runs(ring, land, minimum=4):
-    """The parts of a closed ring that lie in open water, as polylines."""
-    wet = [not _on_land(p, land) for p in ring]
+def _open_water_runs(ring, field, minimum=4, closed=True):
+    """The parts of a line that lie in open water, as polylines."""
+    ring = list(ring)
+    wet = [not field(p) for p in ring]
     if all(wet):
-        return [list(ring) + [ring[0]]]
+        return [ring + [ring[0]]] if closed else [ring]
+    wrap = ring[:1] if closed else []
+    wrap_wet = wet[:1] if closed else []
     runs, current = [], []
-    for point, is_wet in zip(ring + ring[:1], wet + wet[:1]):
+    for point, is_wet in zip(ring + wrap, wet + wrap_wet):
         if is_wet:
             current.append(point)
         elif current:
@@ -158,14 +224,48 @@ def _open_water_runs(ring, land, minimum=4):
     return runs
 
 
+class LandField:
+    """A coarse raster of where the land is.
+
+    Generation asks the question tens of thousands of times — every candidate
+    site, every sample along every edge — and an exact polygon test per query
+    costs more than the whole rest of generation. A cell is 8 world units.
+    """
+
+    CELL = 8.0
+
+    def __init__(self, land):
+        self.cols = int(T.WORLD_W / self.CELL) + 2
+        self.rows = int(T.WORLD_H / self.CELL) + 2
+        # rasterised rather than tested point by point: a polygon fill is the
+        # one place in this project where a filled shape is the right tool,
+        # and nothing ever sees it
+        surface = pygame.Surface((self.cols, self.rows))
+        surface.fill((0, 0, 0))
+        for poly in land:
+            pygame.draw.polygon(surface, (255, 255, 255),
+                                [(x / self.CELL, y / self.CELL) for x, y in poly])
+        self.mask = pygame.surfarray.array2d(surface) != 0
+
+    def __call__(self, point) -> bool:
+        col = int(point[0] / self.CELL)
+        row = int(point[1] / self.CELL)
+        if not (0 <= col < self.cols and 0 <= row < self.rows):
+            return False
+        return bool(self.mask[col, row])
+
+    def any_dry(self, points) -> bool:
+        return any(self(p) for p in points)
+
+
 def _on_land(point, land):
     return any(point_in_polygon(point, poly) for poly in land)
 
 
-def _crosses_water(a, b, land, samples=14):
-    for t in np.linspace(0.12, 0.88, samples):
+def _crosses_water(a, b, field, samples=18):
+    for t in np.linspace(0.10, 0.90, samples):
         p = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
-        if not _on_land(p, land):
+        if not field(p):
             return True
     return False
 
@@ -186,13 +286,23 @@ def _segments_cross(p1, p2, p3, p4):
     return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
 
 
-def _place_settlements(gen, land, count):
+def _place_settlements(gen, field, coast, count):
+    """Sites on the land, most of them within reach of the water.
+
+    A post service in this country is a coastal service: settlements sit on the
+    shore, on the islands, and only some way up the valleys behind them.
+    """
+    shore_y = [p[1] for p in coast]
+    shore_x = [p[0] for p in coast]
     pts = []
     tries = 0
     while len(pts) < count and tries < T.SETTLEMENT_PLACEMENT_TRIES:
         tries += 1
         p = (gen.uniform(60, T.WORLD_W - 60), gen.uniform(60, T.WORLD_H - 60))
-        if not _on_land(p, land):
+        if not field(p):
+            continue
+        inland = p[0] - float(np.interp(p[1], shore_y, shore_x))
+        if inland > T.SETTLEMENT_COAST_BAND and gen.random() > T.SETTLEMENT_INLAND_CHANCE:
             continue
         if any(np.hypot(p[0] - q[0], p[1] - q[1]) < T.SETTLEMENT_MIN_SPACING for q in pts):
             continue
@@ -231,33 +341,41 @@ def _candidate_edges(points):
 def generate(seed: int) -> WorldMap:
     gen = rng("world", seed)
 
-    # land: one main mass and a few islands
-    main_centre = (T.WORLD_W * 0.42, T.WORLD_H * 0.5)
-    land = [_blob(gen, main_centre, min(T.WORLD_W, T.WORLD_H) * 0.46,
-                  lobes=11, roughness=0.34)]
-    land_centres = [main_centre]
-    wanted = int(gen.integers(*T.COAST_ISLANDS))
-    for _ in range(wanted * 12):
-        if len(land) > wanted:
-            break
-        radius = float(gen.uniform(120, 240))
-        centre = (gen.uniform(T.WORLD_W * 0.5, T.WORLD_W * 0.96),
-                  gen.uniform(T.WORLD_H * 0.10, T.WORLD_H * 0.90))
-        island = _blob(gen, centre, radius, lobes=7, roughness=0.24)
-        if any(_on_land(p, land) for p in island):
-            continue      # an island that touches the mainland is not an island
-        land.append(island)
-        land_centres.append(centre)
+    # the land is a coast: open sea to the west, mainland to the east, and a
+    # scatter of smaller islands out in the water
+    coast = _coastline(gen)
+    land = [_mainland(coast)]
+    coast_paths = [(list(coast), False)]      # (points, closed)
+    island_centres = []
 
-    # the mountain spine, wandering down the main mass
+    wanted = int(gen.integers(*T.COAST_ISLANDS))
+    for _ in range(wanted * 20):
+        if len(island_centres) >= wanted:
+            break
+        radius = float(gen.uniform(*T.ISLAND_RADIUS))
+        centre = (gen.uniform(150.0, T.WORLD_W * T.COAST_X - 120.0),
+                  gen.uniform(T.WORLD_H * 0.06, T.WORLD_H * 0.94))
+        island = _blob(gen, centre, radius, lobes=7, roughness=0.24)
+        if any(point_in_polygon(p, land[0]) for p in island):
+            continue      # an island that touches anything is not an island
+        if any(np.hypot(centre[0] - c[0], centre[1] - c[1]) < radius + r + 90
+               for c, r in island_centres):
+            continue
+        land.append(island)
+        coast_paths.append((island, True))
+        island_centres.append((centre, radius))
+
+    # the mountain spine, inland and roughly parallel to the shore
     ridge = []
-    x0 = T.WORLD_W * gen.uniform(0.28, 0.46)
     for i in range(T.RIDGE_KNOTS):
         t = i / (T.RIDGE_KNOTS - 1)
-        ridge.append((x0 + gen.uniform(-140, 140) + t * gen.uniform(-60, 180),
-                      T.WORLD_H * (0.05 + 0.9 * t)))
+        y = T.WORLD_H * (0.02 + 0.96 * t)
+        shore = float(np.interp(y, [p[1] for p in coast], [p[0] for p in coast]))
+        ridge.append((min(T.WORLD_W - 120.0,
+                          shore + T.RIDGE_INLAND + gen.uniform(-90.0, 130.0)), y))
 
-    points = _place_settlements(gen, land, T.SETTLEMENTS_MAX)
+    field = LandField(land)
+    points = _place_settlements(gen, field, coast, T.SETTLEMENTS_MAX)
     labels = name_data.settlement_names(gen, len(points))
 
     settlements = []
@@ -276,7 +394,7 @@ def generate(seed: int) -> WorldMap:
     for a, b in pairs:
         length = float(dist[a, b])
         pa, pb = points[a], points[b]
-        if _crosses_water(pa, pb, land):
+        if _crosses_water(pa, pb, field):
             terrain = "COAST"
         elif _crosses_ridge(pa, pb, ridge):
             terrain = "PASS"
@@ -308,30 +426,32 @@ def generate(seed: int) -> WorldMap:
         settlements[sid].known = True
 
     soundings = []
-    for i in range(220):
+    for i in range(320):
         p = (gen.uniform(0, T.WORLD_W), gen.uniform(0, T.WORLD_H))
-        if _on_land(p, land):
+        if field(p):
             continue
         soundings.append((p[0], p[1], int(gen.integers(3, 96))))
 
     # a chart shows what the water is doing: inward lines behind the shore and
-    # depth contours out at sea, both read off the same shape and both spaced
-    # by the size of the mass, so an island is not ringed like a continent
-    coast_offsets = [[], []]
+    # depth contours out at sea, both read off the same shapes
+    coast_offsets = [[]]
     depth_lines = [[], []]
-    for poly, centre in zip(land, land_centres):
-        reach = float(np.mean([np.hypot(p[0] - centre[0], p[1] - centre[1])
-                               for p in poly]))
-        for i, inward in enumerate((0.035, 0.075)):
-            coast_offsets[i].append(_offset_ring(poly, centre, reach * inward))
-        for i, seaward in enumerate((0.06, 0.15)):
-            ring = _offset_ring(poly, centre, -reach * seaward)
-            # a depth line that runs over another island is not a depth line
-            depth_lines[i].extend(_open_water_runs(ring, land))
+    coast_offsets[0].append(_offset_coast(coast, -34.0, smoothing=9))
+    # smoothed a little more the further out they sit, but never so much that
+    # they straighten: a straight line is the one mark this chart does not make
+    for i, seaward in enumerate((70.0, 165.0)):
+        depth_lines[i].extend(
+            _open_water_runs(_offset_coast(coast, seaward, smoothing=7 + i * 4),
+                             field, closed=False))
+    for island, (centre, radius) in zip(land[1:], island_centres):
+        coast_offsets[0].append(_offset_ring(island, centre, radius * 0.16))
+        depth_lines[0].extend(
+            _open_water_runs(_offset_ring(island, centre, -radius * 0.45), field))
 
     return WorldMap(seed=seed, settlements=settlements, edges=edges,
                     land=land, ridge=ridge, soundings=soundings,
-                    coast_offsets=coast_offsets, depth_lines=depth_lines)
+                    coast_offsets=coast_offsets, depth_lines=depth_lines,
+                    coast_paths=coast_paths)
 
 
 
