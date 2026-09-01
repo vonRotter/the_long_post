@@ -33,6 +33,9 @@ OXIDE = (146, 62, 48)             # the one accent, corrections and losses only
 INK_WEIGHTS = {
     "faint":      (1, (70,), 0.0),
     "normal":     (2, (95, 165), 0.5),
+    # the post's own lines: legs and settlements, re-inked oftener than the
+    # coast around them, and the thing the chart is actually about
+    "route":      (2, (150, 215), 0.55),
     "heavy":      (3, (110, 175, 235), 0.9),
     "correction": (3, (150, 205, 250), 1.4),
 }
@@ -61,6 +64,7 @@ DETAIL_NAMES = 0.8
 DETAIL_ROOFS = 3.0
 DETAIL_HULLS = 2.2
 DETAIL_MEASURE = 3.4
+DETAIL_HACHURE = 1.5      # below this, high ground is drawn as contours only
 
 # --- world ----------------------------------------------------------------
 
@@ -77,16 +81,49 @@ SETTLEMENT_INLAND_CHANCE = 0.4    # how often a site well inland is taken anyway
 POP_RANGE = (40, 260)
 STANDING_START = 55
 
-# The land is a coast, not an island: open sea to the west, mainland to the
-# east, and a scatter of smaller islands out in the water.
-COAST_X = 0.50                    # where the shore sits, as a fraction of width
-COAST_WANDER = 90.0              # how far the shore drifts from that line
-COAST_FJORDS = (3, 6)             # water cutting inland
-FJORD_DEPTH = (170.0, 460.0)
-COAST_ISLANDS = (3, 7)
-ISLAND_RADIUS = (55.0, 150.0)
-RIDGE_KNOTS = 7                   # control points of the mountain spine
-RIDGE_INLAND = 320.0              # how far behind the shore the spine runs
+# --- the economy ----------------------------------------------------------
+
+# A settlement produces its surplus goods at this multiple of its own yearly
+# need for them. Nobody produces everything, which is why the network exists.
+SURPLUS_RATE = 2.6
+STORES_AT_START = 0.70            # fraction of a year's need already held
+
+# What a shortfall costs, at the end of winter. Weighted by good: nobody dies
+# of a tool shortage, and a winter without fuel is nearly a winter without
+# grain. In head-years unsupplied.
+# A settlement given nothing at all for a year loses the sum of these, as a
+# share of its people. Grain is most of it; nobody dies of a tool shortage.
+SHORTFALL_DEATHS = {"GRAIN": 0.100, "FUEL": 0.055, "MEDICINE": 0.025,
+                    "TOOLS": 0.0, "POST": 0.0}
+# Below this, at the end of a winter, a settlement is given up: too few people
+# left to hold the place through another one. It is also what makes a
+# settlement doomed in advance — see Settlement.doomed and the spec's §3.9.
+ABANDON_POPULATION = 26
+
+# The land is a coast: open sea to the west, and a shore of skerries, islands
+# and fjords giving onto high ground in the east. All of it is one noise field
+# read at several levels — see world/terrain.py.
+TERRAIN_CELL = 9.0                # world units per elevation cell
+SEA_LEVEL = 0.50
+MOUNTAIN_LEVEL = 0.78
+# How the ground rises from west to east: (across the sheet, height). The long
+# middle section sits just under the waterline, which is what makes the outer
+# archipelago a belt of rock and sounds rather than an edge.
+COAST_PROFILE = ((0.00, 0.00), (0.22, 0.04), (0.42, 0.40), (0.60, 0.58),
+                 (0.80, 0.90), (1.00, 1.00))
+COAST_GRADIENT = 0.28             # how much of the height is that rise
+COAST_BASE = (7, 6)               # the largest features, in cells across
+COAST_STRETCH = 1.6               # features elongated east to west: fjords
+COAST_ROUGHNESS = 0.66            # how much the fine octaves carry
+COAST_SHELF = 0.70                # ground squeezed toward the waterline
+SKERRY_AMOUNT = 0.26              # how hard the shallows break into rock
+SKERRY_DEPTH = 0.055              # how far below the waterline that happens
+SKERRY_BAND = 0.075               # and over what depth of water
+COAST_WARP = 150.0                # world units the ground is warped before read
+
+DEPTH_LEVELS = (0.035, 0.085)     # contours below the shore, out at sea
+SHORE_LEVELS = (0.030,)           # contours above it, behind the shore
+MIN_ISLAND_AREA = 900.0           # smaller loops than this are not inked
 
 EDGE_NEIGHBOURS = 3               # k-nearest candidate edges per settlement
 EDGE_MAX_LENGTH = 820.0
@@ -118,11 +155,11 @@ SEASON_PROFILES = {
 # re-inked at an offset rounded to this grid, onto a surface this much larger
 # than the chart rect, and blitted back at the difference: a drag re-inks once
 # every 160 px of travel instead of once a frame. Borrowed from map maker.
-PAN_QUANTUM = 160
+PAN_QUANTUM = 260
 
 # The ground layer's re-ink is spread over frames, this many milliseconds at a
 # time, so no single frame pays for the whole sheet.
-INK_SLICE_MS = 6.0
+INK_SLICE_MS = 7.0
 
 # While a zoom is still easing, the cached document is scaled rather than
 # re-inked, and re-inked once the camera settles.

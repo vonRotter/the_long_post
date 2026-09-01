@@ -55,7 +55,7 @@ def test_no_source_string_carries_a_word_of_feeling():
 def test_a_full_run_writes_nothing_that_tells_the_player_how_to_feel():
     game = Game(11)
     for _ in range(T.TURNS):
-        game.advance()
+        game.run_season()
     bad = [line for line, _accent in game.log.lines if offending(line)]
     assert not bad, bad
 
@@ -63,7 +63,7 @@ def test_a_full_run_writes_nothing_that_tells_the_player_how_to_feel():
 def test_log_lines_are_plain_and_lower_key():
     game = Game(2)
     for _ in range(8):
-        game.advance()
+        game.run_season()
     for line, _accent in game.log.lines:
         assert "!" not in line
         assert not line.isupper()

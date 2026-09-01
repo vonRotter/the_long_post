@@ -135,7 +135,7 @@ class DocumentCache:
             # carries the view until the camera settles
             if camera.settled or stale:
                 self.back.fill((0, 0, 0, 0))
-                self.pending = [view._quantised_centre(), camera.zoom,
+                self.pending = [view._cache_centre(), camera.zoom,
                                 list(self.stages())]
                 self.dirty = False
 
@@ -178,31 +178,44 @@ class ChartView:
         self._render_centre = None     # the world point being inked against
 
         # The ground is the expensive half and changes only with the season and
-        # the view, so its re-ink is spread across frames. The network is cheap
-        # and changes whenever the chart does, including every frame of the
-        # season redraw, so it is always finished in one.
+        # the view, so its re-ink is spread across frames. The legs and the
+        # settlements are cheap and always finished in one — and they are kept
+        # apart because the season change re-inks the legs every frame while
+        # the settlements stand still.
         self.ground = DocumentCache(size, self._ground_stages,
-                                    slice_ms=T.INK_SLICE_MS, warm_at=0.16)
-        self.network = DocumentCache(size, self._network_stages)
+                                    slice_ms=T.INK_SLICE_MS, warm_at=0.25)
+        self.routes = DocumentCache(size, self._route_stages, warm_at=0.06)
+        self.places = DocumentCache(size, self._place_stages, warm_at=0.06)
         self.dynamic = pygame.Surface(self.rect.size, pygame.SRCALPHA)
         self.season = T.SEASONS[0]
         self.previous_season = None
         self.redraw_t = 1.0          # 0..1, the season-change re-inking
         self.hover_edge = None
+        self.game = None          # set by the game; the chart reads it, never writes
         self._mask = None
 
     # --- state ---
     @property
+    def caches(self):
+        return (self.ground, self.routes, self.places)
+
+    @property
+    def network(self):
+        """The legs and the places together — what the post put on the chart."""
+        return self.routes
+
+    @property
     def dirty(self) -> bool:
-        return self.ground.dirty or self.network.dirty
+        return any(cache.dirty for cache in self.caches)
 
     @dirty.setter
     def dirty(self, value):
-        self.ground.dirty = self.network.dirty = bool(value)
+        for cache in self.caches:
+            cache.dirty = bool(value)
 
     @property
     def _rebuilds(self) -> int:
-        return self.ground.rebuilds + self.network.rebuilds
+        return sum(cache.rebuilds for cache in self.caches)
 
     def set_season(self, season):
         """The chart redraws: closed edges are erased, new ones inked in."""
@@ -229,12 +242,15 @@ class ChartView:
         return (cx + (world_pt[0] - self._render_centre[0]) * scale,
                 cy + (world_pt[1] - self._render_centre[1]) * scale)
 
-    def _quantised_centre(self):
-        """The camera centre, rounded to the pan grid, in world units."""
-        scale = self.camera.scale
-        quantum = T.PAN_QUANTUM
-        return np.array([round(self.camera.centre[0] * scale / quantum) * quantum / scale,
-                         round(self.camera.centre[1] * scale / quantum) * quantum / scale])
+    def _cache_centre(self):
+        """Where the next bitmap is inked from: where the camera is now.
+
+        The bitmap is bigger than the chart rect by the pan margin, and the
+        slack test decides when the view has eaten that margin — so there is
+        nothing to gain by rounding the centre to a grid, and half the margin
+        to lose before a drag has even started.
+        """
+        return self.camera.centre.copy()
 
     def _blit_scaled(self, target, surface, centre, factor):
         """Blit a bitmap inked at another zoom, scaling only what is on screen."""
@@ -261,20 +277,31 @@ class ChartView:
     MASK_STEP = 2   # the sea mask is coarse; tone does not need pixel accuracy
 
     def _land_mask(self):
-        """A screen-space mask of the land, so sea tone can avoid it cheaply."""
+        """A screen-space mask of the land, taken straight off the field."""
         step = self.MASK_STEP
         size = (self._render_size[0] // step + 1, self._render_size[1] // step + 1)
+        ground = self.world.terrain
+        small = pygame.Surface((ground.cols, ground.rows))
+        pygame.surfarray.blit_array(
+            small, np.where(ground.mask.T, 255, 0).astype(np.uint8)[:, :, None]
+                     .repeat(3, axis=2))
+        scale = self.camera.scale * ground.cell / step
+        target = (max(1, int(ground.cols * scale)), max(1, int(ground.rows * scale)))
+        scaled = pygame.transform.scale(small, target)
         mask = pygame.Surface(size)
         mask.fill((0, 0, 0))
-        for poly in self.world.land:
-            pts = [(x / step, y / step) for x, y in (self._local(p) for p in poly)]
-            pygame.draw.polygon(mask, (255, 255, 255), pts)
+        origin = self._local((0.0, 0.0))
+        mask.blit(scaled, (origin[0] / step, origin[1] / step))
         return pygame.surfarray.array2d(mask) != 0
 
     # --- the document ---
     def _ground_stages(self):
-        """The sheet: what the water and the land are doing. Sliced across
-        frames, so no single frame pays for all of it."""
+        """The sheet: what the water and the land are doing.
+
+        Handed over in small pieces — a few contours at a time — so that a
+        re-ink can stop between any two of them and finish next frame. A stage
+        that costs more than the slice makes the slice meaningless.
+        """
         def mask(_surf):
             self._mask = self._land_mask()
 
@@ -282,23 +309,41 @@ class ChartView:
             if self.season == "WINTER":
                 self._draw_ice(surf, self._mask)
 
+        def chunks(paths, size=6):
+            return [paths[i:i + size] for i in range(0, len(paths), size)]
+
         bands = 3
         stages = [mask]
         stages += [lambda surf, b=b: self._draw_sea(surf, b, bands) for b in range(bands)]
         stages.append(ice)
-        stages += [lambda surf, level=level: self._draw_water_lines(surf, level)
-                   for level in range(len(self.world.depth_lines)
-                                      + len(self.world.coast_offsets))]
-        for index in range(len(self.world.coast_paths)):
-            stages.append(lambda surf, i=index: self._draw_coast_of(surf, i))
-        stages.append(self._draw_ridge)
+
+        for level, rings in enumerate(self.world.depth_lines):
+            if self.camera.zoom < 0.8 and level > 0:
+                continue
+            stages += [lambda surf, c=c, level=level: self._ink_contours(surf, c, "faint",
+                                                                        ("depth", level))
+                       for c in chunks(rings, 10)]
+        for rings in chunks(self.world.coast_paths, 5):
+            stages.append(lambda surf, c=rings: self._ink_contours(surf, c, "normal",
+                                                                   ("coast",)))
+        for level, rings in enumerate(self.world.coast_offsets):
+            stages += [lambda surf, c=c, level=level: self._ink_contours(surf, c, "faint",
+                                                                        ("shore", level))
+                       for c in chunks(rings, 10)]
+        for rings in chunks(self.world.mountains, 4):
+            stages.append(lambda surf, c=rings: self._draw_mountains(surf, c))
+        stages.append(self._draw_land_tone)
         stages.append(self._draw_soundings)
         return stages
 
-    def _network_stages(self):
-        """What the post has on the chart: legs, settlements, and the marks a
-        run leaves behind. Cheap, and redrawn whenever any of it changes."""
-        return [self._draw_edges, self._draw_settlements]
+    def _route_stages(self):
+        """The legs. Re-inked every frame of the season change, so kept apart
+        from the settlements, which are not."""
+        return [self._draw_edges]
+
+    def _place_stages(self):
+        """The settlements, and the marks a run leaves beside them."""
+        return [self._draw_settlements]
 
     def _draw_sea(self, surf, band=0, bands=1):
         """Faint hatching, thickening as the player draws in. No filled areas.
@@ -306,9 +351,12 @@ class ChartView:
         Drawn in bands so a re-ink can stop between them.
         """
         zoom = self.camera.zoom
-        density = 0.40 + 0.06 * min(zoom, 4.0)
+        # The water carries its depths and its soundings now, so the ambient
+        # tone is only a whisper: hatching belongs to danger, ice and weather,
+        # and it cannot read as those if the whole sea is hatched.
+        density = 0.02 + 0.09 * min(zoom, 4.0)
         spacing = T.HATCH_SPACING_MAX + (T.HATCH_SPACING_MIN - T.HATCH_SPACING_MAX) * density
-        spacing = max(spacing, 11.0)
+        spacing = max(spacing, 15.0)
         angle = 0.30 if self.season != "WINTER" else 0.16
         w, h = self._render_size
         mask = self._mask
@@ -324,7 +372,7 @@ class ChartView:
             b = mid + np.array([ca, sa]) * reach
             spans.extend(_visible_spans(a, b, w, h, mask, self.MASK_STEP))
         ink.faint_strokes(surf, spans, ink.seed_of("sea", self.season, n, band),
-                          alpha=88)
+                          alpha=int(46 + 16 * min(zoom, 3.0)))
 
     def _draw_ice(self, surf, mask):
         """Winter closes the sea. It is drawn as ice: stipple, not hatching."""
@@ -339,76 +387,72 @@ class ChartView:
             surf.set_at((int(x), int(y)), (*T.INK, 82))
         surf.unlock()
 
-    def _draw_coast_of(self, surf, index):
-        """One shore: the mainland's coastline or an island, and the light
-        stipple on the land behind it."""
-        path, closed = self.world.coast_paths[index]
-        pts = [self._local(p) for p in path]
-        if not any(self._visible(p, margin=250) for p in pts):
-            return
-        step = max(1, len(pts) // (34 if not closed else 26))
-        drawn = pts[::step]
-        if not closed and drawn[-1] != pts[-1]:
-            drawn.append(pts[-1])
-        ink.ink_curve(surf, drawn, "normal", ink.seed_of("coast", index),
-                      closed=closed, samples=5)
-        self._draw_land_tone(surf, index,
-                             [self._local(p) for p in self.world.land[index]])
+    def _paths_on_sheet(self, paths, margin=140):
+        """Contours with anything on the sheet, in document coordinates.
 
-    def _draw_ridge(self, surf):
-        """The mountain spine, as sparse hatching along its length."""
-        ridge = [self._local(p) for p in self.world.ridge]
-        for i, (a, b) in enumerate(zip(ridge, ridge[1:])):
-            if not (self._visible(a, margin=120) or self._visible(b, margin=120)):
-                continue
-            for k in range(5):
-                t0, t1 = k / 5.0, (k + 0.75) / 5.0
-                p0 = (a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0)
-                p1 = (a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1)
-                nx, ny = -(p1[1] - p0[1]), (p1[0] - p0[0])
-                d = math.hypot(nx, ny) or 1.0
-                nx, ny = nx / d * 7, ny / d * 7
-                ink.ink_line(surf, (p0[0] - nx, p0[1] - ny), (p1[0] + nx, p1[1] + ny),
-                             "faint", ink.seed_of("ridge", i, k))
-
-    def _draw_water_lines(self, surf, level=None):
-        """Inward lines behind the shore, and the depths out at sea.
-
-        A chart says what the water is doing. Both sets are read off the same
-        shape, so neither costs new geometry, and both are faint: the shoreline
-        itself stays the darkest line on the chart.
+        Transformed with numpy and culled by bounding box: a coast of a hundred
+        loops is tens of thousands of points, and doing that a point at a time
+        in Python costs more than inking them.
         """
-        depths = len(self.world.depth_lines)
-        for ring_index, runs in enumerate(self.world.depth_lines):
-            if level is not None and level != ring_index:
+        scale = self.camera.scale
+        cx, cy = self._render_size[0] / 2.0, self._render_size[1] / 2.0
+        ox, oy = float(self._render_centre[0]), float(self._render_centre[1])
+        width, height = self._render_size
+        out = []
+        for path in paths:
+            arr = np.asarray(path, dtype=np.float64)
+            xs = cx + (arr[:, 0] - ox) * scale
+            ys = cy + (arr[:, 1] - oy) * scale
+            if (xs.max() < -margin or xs.min() > width + margin
+                    or ys.max() < -margin or ys.min() > height + margin):
                 continue
-            if self.camera.zoom < 0.8 and ring_index > 0:
-                continue
-            for run_index, run in enumerate(runs):
-                pts = [self._local(p) for p in run]
-                if not any(self._visible(p, margin=200) for p in pts):
-                    continue
-                step = max(1, len(pts) // 22)
-                ink.ink_curve(surf, pts[::step], "faint",
-                              ink.seed_of("depth", ring_index, run_index), samples=4)
-        for ring_index, rings in enumerate(self.world.coast_offsets):
-            if level is not None and level != depths + ring_index:
-                continue
-            for poly_index, poly in enumerate(rings):
-                pts = [self._local(p) for p in poly]
-                if not any(self._visible(p, margin=200) for p in pts):
-                    continue
-                step = max(1, len(pts) // 26)
-                ink.ink_curve(surf, pts[::step], "faint",
-                              ink.seed_of("offset", ring_index, poly_index),
-                              closed=True, samples=5)
+            out.append(np.stack([xs, ys], axis=1))
+        return out
 
-    def _draw_land_tone(self, surf, index, screen_poly):
+    def _contour_step(self):
+        """How much of a contour to keep. Far out, every third point is enough
+        and the difference is a pen's width."""
+        return 1 if self.camera.zoom >= 2.0 else 3
+
+    def _ink_contours(self, surf, paths, weight, identity):
+        ink.ink_paths(surf, self._paths_on_sheet(paths), weight,
+                      ink.seed_of(*identity), step=self._contour_step())
+
+    def _draw_mountains(self, surf, paths):
+        """High ground, drawn the way a chart shows relief: its outline, and
+        short strokes down the slope inside it."""
+        on_sheet = self._paths_on_sheet(paths)
+        ink.ink_paths(surf, on_sheet, "faint", ink.seed_of("mountain"),
+                      step=self._contour_step() + 1)
+        if self.camera.zoom < T.DETAIL_HACHURE:
+            return              # far out, high ground is its outline and no more
+        for index, pts in enumerate(on_sheet):
+            if len(pts) < 40:          # only ground worth calling high ground
+                continue
+            gen = ink.rng("hachure", index, round(self.camera.zoom, 1))
+            for i in range(0, len(pts), max(6, len(pts) // 9)):
+                a = pts[i]
+                b = pts[(i + 2) % len(pts)]
+                dx, dy = b[0] - a[0], b[1] - a[1]
+                length = math.hypot(dx, dy) or 1.0
+                nx, ny = -dy / length, dx / length
+                reach = float(gen.uniform(2.5, 5.0)) * min(self.camera.zoom, 2.0)
+                ink.ink_line(surf, a, (a[0] - nx * reach, a[1] - ny * reach), "faint",
+                             ink.seed_of("hachure", index, i))
+
+    def _draw_land_tone(self, surf):
         """Land carries very light stipple. There are no filled areas anywhere."""
-        clip = pygame.Rect(0, 0, *self._render_size)
-        ink.stipple(surf, screen_poly, 0.24 + 0.06 * min(self.camera.zoom, 3.0),
-                    ink.seed_of("land", index, round(self.camera.zoom, 1)),
-                    alpha=88, clip=clip, bounds=clip)
+        w, h = self._render_size
+        gen = ink.rng("land tone", self.world.seed, round(self.camera.zoom, 1))
+        count = int(w * h * (0.00034 + 0.00008 * min(self.camera.zoom, 3.0)))
+        pts = gen.uniform([0, 0], [w, h], (count, 2))
+        xi = np.clip((pts[:, 0] / self.MASK_STEP).astype(int), 0, self._mask.shape[0] - 1)
+        yi = np.clip((pts[:, 1] / self.MASK_STEP).astype(int), 0, self._mask.shape[1] - 1)
+        pts = pts[self._mask[xi, yi]]
+        surf.lock()
+        for x, y in pts:
+            surf.set_at((int(x), int(y)), (*T.INK, 84))
+        surf.unlock()
 
     def _draw_soundings(self, surf):
         if self.camera.zoom < 0.85:
@@ -451,10 +495,14 @@ class ChartView:
             elif edge.terrain == "ICE":
                 self._draw_ice_road(surf, a, b, seed, reveal)
             elif state == T.HARD:
-                ink.dashed_line(surf, a, b, "normal", seed, reveal=reveal)
+                ink.dashed_line(surf, a, b, "route", seed, reveal=reveal)
             else:
-                weight = "normal" if edge.runs < 6 else "heavy"
+                # a route the post uses heavily darkens, as though re-inked
+                weight = "route" if edge.runs < 6 else "heavy"
                 ink.ink_line(surf, a, b, weight, seed, reveal=reveal)
+
+            if self.game is not None and self.game.selected_edge is edge:
+                self._draw_selection(surf, a, b, seed)
 
             if self.camera.zoom >= T.DETAIL_MEASURE and reveal >= 1.0:
                 self._draw_measure(surf, a, b, edge, seed)
@@ -462,9 +510,20 @@ class ChartView:
             for year, _name in edge.losses:
                 self._margin_cross(surf, a, b, year, seed)
 
+    def _draw_selection(self, surf, a, b, seed):
+        """The leg the player is looking at, ticked in the margin of the line."""
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / length, dx / length
+        for side in (-1, 1):
+            off = (nx * 5 * side, ny * 5 * side)
+            ink.ink_line(surf, (a[0] + off[0], a[1] + off[1]),
+                         (b[0] + off[0], b[1] + off[1]), "faint",
+                         ink.seed_of(seed, "selected", side))
+
     def _draw_ice_road(self, surf, a, b, seed, reveal):
         """Sketched in a lighter, provisional hand, and marked as ice."""
-        ink.dashed_line(surf, a, b, "faint", seed, dash=15.0, gap=6.0, reveal=reveal)
+        ink.dashed_line(surf, a, b, "normal", seed, dash=15.0, gap=6.0, reveal=reveal)
         dx, dy = b[0] - a[0], b[1] - a[1]
         length = math.hypot(dx, dy) or 1.0
         nx, ny = -dy / length, dx / length
@@ -518,7 +577,7 @@ class ChartView:
                 ink.mark(surf, "strike", (p[0], p[1] + 3), seed + 1, r * 1.3,
                          "correction", T.OXIDE)
             else:
-                ink.circle(surf, p, r, "normal", seed)
+                ink.circle(surf, p, r, "route", seed)
 
             if zoom >= T.DETAIL_ROOFS and s.alive:
                 self._draw_roofs(surf, p, r, seed)
@@ -548,7 +607,7 @@ class ChartView:
         clip = target.get_clip()
         target.set_clip(self.rect)
 
-        for cache in (self.ground, self.network):
+        for cache in self.caches:
             surface = cache.service(self, self.camera)
             factor = self.camera.zoom / cache.zoom
             if abs(factor - 1.0) < 1e-6:
@@ -559,9 +618,85 @@ class ChartView:
             self._blit_scaled(target, surface, cache.centre, factor)
 
         self.dynamic.fill((0, 0, 0, 0))
-        # moving things go here at M1: cargo dots, hulls, teams
+        self._draw_runs(self.dynamic)
         target.blit(self.dynamic, self.rect.topleft)
         target.set_clip(clip)
+
+    # --- what is moving ---
+    def _screen(self, world_pt):
+        x, y = self.camera.world_to_screen(world_pt)
+        return (x - self.rect.x, y - self.rect.y)
+
+    def _draw_runs(self, surf):
+        """Cargo in transit: a single small dot at CHART, a drawn hull, sledge
+        or team once the player has drawn in."""
+        game = self.game
+        if game is None or game.phase != "RESOLVE" or game.resolution is None:
+            return
+        share = game.resolve_t / max(game.resolution.duration, 1e-6)
+        for leg in game.resolution.legs:
+            if not leg.arrived and share > leg.start:
+                continue
+            span = max(leg.end - leg.start, 1e-6)
+            t = (share - leg.start) / span
+            if t < 0:
+                continue
+            t = min(t, 1.0)
+            a = self._screen(self.world.settlements[leg.origin].pos)
+            b = self._screen(self.world.settlements[leg.destination].pos)
+            p = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+            carrier = game.fleet[leg.carrier_id]
+            if self.camera.zoom >= T.DETAIL_HULLS:
+                self._draw_carrier(surf, p, a, b, carrier, leg)
+            else:
+                ink.mark(surf, "dot", p, ink.seed_of("run", leg.carrier_id), 2.0)
+
+    def _draw_carrier(self, surf, p, a, b, carrier, leg):
+        """Six or seven lines, no more, and a wake or a track behind it."""
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / length, dy / length
+        nx, ny = -uy, ux
+        size = float(np.clip(self.camera.zoom * 3.0, 6.0, 26.0))
+        seed = ink.seed_of("carrier", carrier.id, leg.edge_id)
+
+        kind = carrier.type.key
+        if kind in ("SMALL_BOAT", "DEEP_VESSEL"):
+            stern = (p[0] - ux * size, p[1] - uy * size)
+            bow = (p[0] + ux * size * 1.2, p[1] + uy * size * 1.2)
+            beam = size * 0.42
+            port = (p[0] + nx * beam, p[1] + ny * beam)
+            starboard = (p[0] - nx * beam, p[1] - ny * beam)
+            ink.ink_curve(surf, [stern, port, bow], "normal", seed, samples=4)
+            ink.ink_curve(surf, [stern, starboard, bow], "normal", seed + 1, samples=4)
+            mast = (p[0] + ny * size * 1.1, p[1] - nx * size * 1.1)
+            ink.ink_line(surf, p, mast, "normal", seed + 2)
+        elif kind == "DOG_SLED":
+            ink.ink_line(surf, (p[0] - ux * size, p[1] - uy * size),
+                         (p[0] + ux * size * 0.4, p[1] + uy * size * 0.4), "normal", seed)
+            ink.ink_line(surf, (p[0] - ux * size + nx * 3, p[1] - uy * size + ny * 3),
+                         (p[0] - ux * size - nx * 3, p[1] - uy * size - ny * 3),
+                         "normal", seed + 1)
+            for i in range(2):
+                lead = (p[0] + ux * size * (0.9 + i * 0.5), p[1] + uy * size * (0.9 + i * 0.5))
+                ink.ink_line(surf, lead, (lead[0] + ux * size * 0.3,
+                                          lead[1] + uy * size * 0.3), "normal", seed + 2 + i)
+        else:
+            body = (p[0] + ux * size * 0.7, p[1] + uy * size * 0.7)
+            ink.ink_line(surf, (p[0] - ux * size * 0.5, p[1] - uy * size * 0.5), body,
+                         "normal", seed)
+            for i, foot in enumerate((-0.3, 0.3)):
+                base = (p[0] + ux * size * foot, p[1] + uy * size * foot)
+                ink.ink_line(surf, base, (base[0] + nx * size * 0.5,
+                                          base[1] + ny * size * 0.5), "normal", seed + 3 + i)
+
+        # the wake, or the track
+        for i in range(1, 5):
+            back = (p[0] - ux * size * (1.2 + i * 0.7), p[1] - uy * size * (1.2 + i * 0.7))
+            spread = size * 0.18 * i
+            ink.ink_line(surf, (back[0] + nx * spread, back[1] + ny * spread),
+                         (back[0] - nx * spread, back[1] - ny * spread), "faint",
+                         ink.seed_of(seed, "wake", i))
 
     # --- picking ---
     def edge_at(self, screen_pos, radius=9.0):

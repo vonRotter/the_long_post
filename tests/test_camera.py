@@ -48,7 +48,7 @@ def test_zoom_and_pan_persist_between_turns():
     game.chart.camera.look_at((400, 400), 4.0)
     settle(game)
     kept = (game.chart.camera.centre.copy(), game.chart.camera.zoom)
-    game.advance()
+    game.run_season()
     settle(game)
     assert np.allclose(game.chart.camera.centre, kept[0])
     assert game.chart.camera.zoom == kept[1]
@@ -70,7 +70,7 @@ def test_a_season_change_re_inks_the_chart(display):
     settle(game)
     game.chart.draw(display)
     before = game.chart._rebuilds
-    game.advance()
+    game.run_season()
     game.chart.update(1 / 60)
     game.chart.draw(display)
     assert game.chart._rebuilds > before

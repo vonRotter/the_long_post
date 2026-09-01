@@ -15,7 +15,8 @@ def fingerprint(world):
           s.surplus, s.known) for s in world.settlements],
         [(e.id, e.a, e.b, e.terrain, e.days, e.ice_of, e.tunnel_site)
          for e in world.edges],
-        [tuple(round(c, 6) for c in p) for poly in world.land for p in poly],
+        float(world.terrain.elevation.sum()),
+        [len(loop) for loop in world.coast_paths],
         world.soundings,
     )
 
@@ -33,7 +34,7 @@ def test_forty_turns_replay_identically():
     def run(seed):
         game = Game(seed)
         for _ in range(T.TURNS + 2):
-            game.advance()
+            game.run_season()
         return list(game.log.lines), fingerprint(game.world)
 
     assert run(9) == run(9)
@@ -42,6 +43,6 @@ def test_forty_turns_replay_identically():
 def test_the_run_is_forty_turns_and_stops_there():
     game = Game(5)
     for _ in range(T.TURNS + 10):
-        game.advance()
+        game.run_season()
     assert game.turn == T.TURNS - 1
     assert game.year == T.START_YEAR + T.YEARS - 1

@@ -241,6 +241,39 @@ def faint_strokes(surface, spans, seed, color=T.INK, alpha=None, segment_px=20.0
     surface.unlock()
 
 
+def ink_paths(surface, paths, weight="normal", seed=0, color=T.INK, closed=True,
+              step=1):
+    """Many polylines at once — a coast of a hundred loops.
+
+    Same look as ink_curve per path, but the wobble for every path is drawn
+    from one batch, which is what makes an archipelago affordable to ink.
+    """
+    passes, alphas, spread = T.INK_WEIGHTS[weight]
+    gen = rng("paths", seed)
+    surface.lock()
+    for index, path in enumerate(paths):
+        pts = np.asarray(path, dtype=np.float64)
+        if step > 1 and len(pts) > step * 4:
+            pts = pts[::step]
+        if len(pts) < 3:
+            continue
+        if closed:
+            pts = np.vstack([pts, pts[:1]])
+        d = np.gradient(pts, axis=0)
+        norm = np.hypot(d[:, 0], d[:, 1])
+        norm[norm < 1e-9] = 1.0
+        perp = np.stack([-d[:, 1] / norm, d[:, 0] / norm], axis=1)
+        amp = min(T.INK_WOBBLE_MAX, T.INK_WOBBLE_BASE + norm.sum() * 0.004)
+        wobble = _smooth(rng("path", seed, index), len(pts), knots=6) * amp
+        base = pts + perp * wobble[:, None]
+        for p in range(passes):
+            offset = gen.uniform(-spread, spread) if spread else 0.0
+            shifted = base + perp * offset if offset else base
+            pygame.draw.aalines(surface, (*color, alphas[p]), False,
+                                [tuple(q) for q in shifted])
+    surface.unlock()
+
+
 def ruled_line(surface, a, b, weight="normal", color=T.INK):
     """The one exception in the game: a tunnel, drawn by an engineer."""
     passes, alphas, _ = T.INK_WEIGHTS[weight]
