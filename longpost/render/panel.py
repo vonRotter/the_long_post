@@ -7,6 +7,7 @@ and is never compacted, filtered, or shortened.
 import pygame
 
 from .. import tuning as T
+from ..world import desperation as pressure
 from ..world import season as season_mod
 from ..world.settlement import GOODS
 from . import ink, lettering, words
@@ -63,8 +64,8 @@ class Panel:
         y += 8
 
         world = game.world
-        population = sum(s.population for s in world.known_settlements() if s.alive)
-        self._line(layer, x, y, "population", alpha=170, spacing=1.2, caps=True)
+        population = sum(s.population for s in world.settlements if s.alive)
+        self._line(layer, x, y, "the north", alpha=170, spacing=1.2, caps=True)
         self._right(layer, y, str(population), size=12)
         y += 15
         y = self._line(layer, x, y,
@@ -118,6 +119,12 @@ class Panel:
             y = self._line(layer, x + 10, y,
                            f"{edge.terrain.lower()}, {edge.days:g} days, {state}",
                            size=9, alpha=140)
+            road = pressure.road_band(edge.danger)
+            if road != "safe" and edge.danger_source >= 0:
+                watcher = world.settlements[edge.danger_source]
+                y = self._line(layer, x + 10, y,
+                               f"{road} — {watcher.name.lower()} is watching it",
+                               size=9, alpha=190, colour=T.OXIDE)
             carrier = game.selected_carrier
             if carrier is not None:
                 order = game.plan.for_carrier(carrier.id)
@@ -153,7 +160,8 @@ class Panel:
         y += 4
 
         for s in world.known_settlements()[self.scroll:]:
-            if y > self.rect.h - 92:
+            if y > self.rect.h - T.PANEL_KEYS_HEIGHT - 58:
+                lettering.draw(layer, "…", (x, y), size=11, alpha=120)
                 break
             alive = s.alive
             colour = T.INK if alive else T.OXIDE
@@ -175,6 +183,13 @@ class Panel:
                                size=9, alpha=170)
             else:
                 y = self._line(layer, x + 8, y, "holds what it needs", size=9, alpha=130)
+            state = pressure.band(s.desperation)
+            if pressure.refuses_to_deal(s):
+                y = self._line(layer, x + 8, y, "desperate — it will not deal",
+                               size=9, alpha=200, colour=T.OXIDE)
+            elif state != "calm":
+                y = self._line(layer, x + 8, y, state, size=9, alpha=175,
+                               colour=T.OXIDE if state == "desperate" else T.INK)
             toll = s.projected_deaths(seasons_left)
             if s.doomed(seasons_left):
                 y = self._line(layer, x + 8, y, "cannot survive this winter", size=9,
@@ -186,7 +201,7 @@ class Panel:
         return y
 
     def _keys(self, layer, x, game):
-        y = self.rect.h - 76
+        y = self.rect.h - T.PANEL_KEYS_HEIGHT
         self._rule(layer, y, 3)
         y += 10
         if game.phase == game.RESOLVE:

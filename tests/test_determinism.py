@@ -40,6 +40,28 @@ def test_forty_turns_replay_identically():
     assert run(9) == run(9)
 
 
+def test_no_roll_in_the_game_depends_on_the_process():
+    """Python randomises string hashing per process. A run that replays
+    differently tomorrow is not a replay, so nothing may use hash()."""
+    import pathlib
+    import re
+
+    source = pathlib.Path(__file__).resolve().parent.parent / "longpost"
+    offenders = []
+    for path in sorted(source.rglob("*.py")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("#") or '"""' in line:
+                continue
+            if re.search(r"(?<![\w.])hash\s*\(", line) and "seed_of" not in line:
+                offenders.append(f"{path.name}:{number}")
+    assert not offenders, offenders
+
+
+def test_a_hazard_roll_is_the_same_in_every_process():
+    from longpost.render.ink import seed_of
+    assert seed_of("hazard", 3, 2, "WINTER", 11, 0, 0) == 3228847447
+
+
 def test_the_run_is_forty_turns_and_stops_there():
     game = Game(5)
     for _ in range(T.TURNS + 10):

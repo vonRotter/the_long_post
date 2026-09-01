@@ -7,7 +7,11 @@ already decided; it never decides anything.
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from .. import tuning as T
+from ..render import ink
+from ..world import desperation as pressure
 from ..world.settlement import GOODS
 from . import assign
 
@@ -21,6 +25,7 @@ class Leg:
     destination: int
     cargo: dict
     arrived: bool = True
+    taken: bool = False           # the load was taken on the road
     reason: str = ""              # why it did not, in plain words
     start: float = 0.0            # when it sets out, 0..1 of the resolution
     end: float = 1.0
@@ -39,6 +44,25 @@ class Resolution:
         return [(text, accent) for at, text, accent in self.lines if at <= t]
 
 
+def _hazard(world, edge, carrier, year, season, index):
+    """Whether this run is stopped on the road, and by whom.
+
+    Deterministic in the seed, the year, the season, the leg and the carrier,
+    so a disastrous year replays identically. Nothing is rolled that the
+    player could not have weighed: the danger was on the leg in the panel
+    before the season was committed.
+    """
+    if edge.danger <= 0 or edge.danger_source < 0:
+        return None
+    # seed_of, never hash(): Python randomises string hashing per process, and
+    # a run that replays differently tomorrow is not a replay
+    seed = ink.seed_of("hazard", world.seed, year, season, edge.id, carrier.id, index)
+    roll = float(np.random.default_rng(seed).random())
+    if roll >= edge.danger * T.HAZARD_SCALE:
+        return None
+    return world.settlements[edge.danger_source]
+
+
 def _goods_phrase(cargo) -> str:
     parts = [f"{int(round(v))} {g.lower()}" for g, v in sorted(cargo.items()) if v > 0]
     if not parts:
@@ -46,6 +70,37 @@ def _goods_phrase(cargo) -> str:
     if len(parts) == 1:
         return parts[0]
     return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _leg_name(world, edge) -> str:
+    return (f"{world.settlements[edge.a].name.lower()} — "
+            f"{world.settlements[edge.b].name.lower()} leg")
+
+
+def _discover(result, settlement, at):
+    """A settlement the post did not have on its chart, learned the hard way.
+
+    Everything hostile has to be traceable to a place the player can look at,
+    so a settlement that takes a load is put on the chart by that fact. It is
+    the plainest possible answer to "where did the grain go".
+    """
+    if settlement.known:
+        return False
+    settlement.known = True
+    result.lines.append((at, f"{settlement.name} was not on this chart. It is now.",
+                         False))
+    return True
+
+
+def _why_watched(settlement) -> str:
+    """The cause, in one plain sentence, every time it happens."""
+    seasons = settlement.seasons_since_delivery
+    if seasons >= T.DESPERATION_ISOLATION:
+        return f"{settlement.name} had had nothing for {seasons} seasons."
+    missing = [g.lower() for g, v in sorted(settlement.shortfall.items()) if v > 0.5]
+    if missing:
+        return f"{settlement.name} is short of {', '.join(missing)}."
+    return f"{settlement.name} lost people last winter."
 
 
 def resolve(world, fleet, plan, turn, year, season) -> Resolution:
@@ -96,6 +151,28 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
             room -= take
         leg.cargo = loaded
 
+        watcher = _hazard(world, edge, carrier, year, season, 0) if loaded else None
+        if watcher is not None:
+            # The load is taken by the people whose road this is. It is not a
+            # faction and it is not an ambush: it is a settlement with nothing,
+            # and the game says which one and how long it has had nothing.
+            leg.taken = True
+            for good, amount in loaded.items():
+                watcher.stores[good] = watcher.stores.get(good, 0.0) + amount
+            watcher.seasons_since_delivery = 0
+            carrier.at = destination.id
+            carrier.runs += 1
+            carrier.history.append((year, season, edge.id))
+            edge.runs += 1
+            result.legs.append(leg)
+            result.lines.append((
+                leg.end,
+                f"{carrier.name} was stopped on the {_leg_name(world, edge)}."
+                f" {_goods_phrase(loaded)} went to {watcher.name}.", True))
+            if not _discover(result, watcher, leg.end):
+                result.lines.append((leg.end, _why_watched(watcher), False))
+            continue
+
         destination_was = destination.projected_shortfall(2)
         for good, amount in loaded.items():
             destination.stores[good] = destination.stores.get(good, 0.0) + amount
@@ -136,15 +213,37 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
                    destination=origin.id, cargo={}, returning=True,
                    start=out_end, end=min(1.0, out_end + 0.42))
         room = carrier.type.capacity
+        lifted = {}
         for good, amount in sorted(home_cargo.items()):
             take = min(room, int(amount), int(destination.stores.get(good, 0.0)))
             if take <= 0:
                 continue
             destination.stores[good] = destination.stores.get(good, 0.0) - take
-            origin.stores[good] = origin.stores.get(good, 0.0) + take
-            origin.received[good] = origin.received.get(good, 0.0) + take
-            back.cargo[good] = float(take)
+            lifted[good] = float(take)
             room -= take
+
+        watcher = _hazard(world, edge, carrier, year, season, 1) if lifted else None
+        if watcher is not None:
+            back.taken = True
+            for good, amount in lifted.items():
+                watcher.stores[good] = watcher.stores.get(good, 0.0) + amount
+            watcher.seasons_since_delivery = 0
+            carrier.at = origin.id
+            edge.runs += 1
+            result.legs.append(back)
+            result.lines.append((
+                back.end,
+                f"{carrier.name} was stopped coming back over the"
+                f" {_leg_name(world, edge)}. {_goods_phrase(lifted)} went to"
+                f" {watcher.name}.", True))
+            if not _discover(result, watcher, back.end):
+                result.lines.append((back.end, _why_watched(watcher), False))
+            continue
+
+        for good, amount in lifted.items():
+            origin.stores[good] = origin.stores.get(good, 0.0) + amount
+            origin.received[good] = origin.received.get(good, 0.0) + amount
+            back.cargo[good] = amount
         carrier.at = origin.id
         edge.runs += 1
         if back.cargo:
@@ -171,14 +270,36 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
             if not settlement.alive:
                 continue
             deaths = settlement.winter_check(year)
-            if deaths:
+            if deaths and settlement.known:
                 result.lines.append((
                     0.9, f"{settlement.name} lost {deaths} over the winter."
                          f" {settlement.population} remain.", False))
             if settlement.population <= T.ABANDON_POPULATION and settlement.alive:
                 settlement.abandoned_year = year
-                result.lines.append((0.95, f"{settlement.name} was given up in year "
-                                           f"{year}.", True))
+                if settlement.known:
+                    result.lines.append((0.95, f"{settlement.name} was given up in"
+                                               f" year {year}.", True))
+
+    # --- and then the pressures, which is where the next season's roads
+    # come from. Nothing here is random: it is arithmetic on what the player
+    # did and did not ship.
+    watched_before = {e.id: e.danger for e in world.edges}
+    pressure.apply(world, season, year)
+    for edge in world.known_edges():
+        before = pressure.road_band(watched_before.get(edge.id, 0.0))
+        now = pressure.road_band(edge.danger)
+        if now == before or edge.danger_source < 0:
+            continue
+        source = world.settlements[edge.danger_source]
+        if not source.known:
+            continue
+        if now == "safe":
+            result.lines.append((
+                1.0, f"the {_leg_name(world, edge)} is quiet again.", False))
+        else:
+            result.lines.append((
+                1.0, f"the {_leg_name(world, edge)} is {now}. "
+                     f"{_why_watched(source)}", False))
 
     return result
 

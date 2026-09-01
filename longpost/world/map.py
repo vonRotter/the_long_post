@@ -30,7 +30,8 @@ class Edge:
     tunnel_site: bool = False     # a collapsed pre-collapse line, excavatable
     tunnel_built: bool = False
     ice_of: int = -1              # the open-water edge this ice road replaces
-    danger: float = 0.0           # derived at M2 from terrain, season, desperation
+    danger: float = 0.0           # what desperation near this leg makes of it
+    danger_source: int = -1       # and whose desperation that is
     runs: int = 0                 # how heavily the post has used this leg
     losses: list = field(default_factory=list)   # (year, courier name)
 

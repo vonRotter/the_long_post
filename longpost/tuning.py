@@ -131,6 +131,42 @@ TRAVEL_DAYS_PER_UNIT = 0.026      # world units -> travel days
 ICE_ROAD_MAX_LENGTH = 520.0       # sea crossings longer than this never freeze
 TUNNEL_SITE_CHANCE = 0.22         # edges carrying a collapsed pre-collapse line
 
+# --- desperation, and the roads it makes dangerous -----------------------
+
+# What the pressure model weighs. All four pressures push up, relief pulls
+# down, and nothing else touches it — see world/desperation.py.
+DESPERATION_WEIGHTS = {
+    "hunger": 0.85,
+    "isolation": 0.50,
+    "grief": 0.55,
+    "bereavement": 0.30,
+    "relief": 0.70,
+}
+DESPERATION_HUNGER_GOODS = {"GRAIN": 1.0, "FUEL": 0.6, "MEDICINE": 0.25}
+DESPERATION_ISOLATION = 6.0       # seasons without a delivery to reach the top
+DESPERATION_POST_RELIEF = 0.22    # what letters are worth, beyond their weight
+DESPERATION_RISE = 0.45           # how fast it climbs toward its pressures
+DESPERATION_FALL = 0.28           # and how much more slowly it comes down
+DESPERATION_REFUSAL = 92.0        # at the extreme, a settlement keeps what it has
+DESPERATION_WATCH_RADIUS = 420.0  # how far its desperation reaches down a road
+
+# Terrain and season scale what desperation has already caused; they never
+# create danger on their own. A finished tunnel is zero, forever.
+DANGER_TERRAIN = {"INLAND": 1.0, "PASS": 1.15, "COAST": 0.5, "ICE": 0.75,
+                  "TUNNEL": 0.0}
+DANGER_SEASON = {"AUTUMN": 1.0, "WINTER": 1.15, "SPRING": 1.05, "SUMMER": 0.85}
+DANGER_THRESHOLD = 0.30           # below this a settlement watches nobody
+HAZARD_SCALE = 0.75               # chance of a load being taken, at full danger
+
+# Bands, not numbers: the panel says calm, strained, desperate — and safe,
+# watched, dangerous. The numbers behind them are in the debug overlay (§6.2,
+# settled at M2: bands preserve tension, numbers preserve trust, and the
+# overlay is where trust is checked).
+BAND_CALM = 0.30
+BAND_STRAINED = 0.62
+BAND_ROAD_SAFE = 0.12
+BAND_ROAD_HARD = 0.38
+
 # --- seasons --------------------------------------------------------------
 
 SEASONS = ("AUTUMN", "WINTER", "SPRING", "SUMMER")
@@ -174,3 +210,6 @@ RESOLVE_SECONDS = 6.0
 
 LOG_LINES_KEPT = 400
 LOG_LINES_SHOWN = 7
+
+# room kept at the foot of the panel for the key list
+PANEL_KEYS_HEIGHT = 76

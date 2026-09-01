@@ -63,7 +63,13 @@ class Settlement:
         return self.population * NEED_PER_HEAD[good] * T.SURPLUS_RATE / 4.0
 
     def spare(self, good) -> float:
-        """What the post may take without leaving the place short this year."""
+        """What the post may take without leaving the place short this year.
+
+        A settlement at the extreme gives up nothing. It is not hostile: it has
+        nothing to spare and no reason to believe more is coming.
+        """
+        if self.desperation >= T.DESPERATION_REFUSAL:
+            return 0.0
         keep = self.population * NEED_PER_HEAD[good] * 0.5
         return max(0.0, self.stores.get(good, 0.0) - keep)
 

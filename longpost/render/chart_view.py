@@ -501,6 +501,9 @@ class ChartView:
                 weight = "route" if edge.runs < 6 else "heavy"
                 ink.ink_line(surf, a, b, weight, seed, reveal=reveal)
 
+            if edge.danger > 0.0:
+                self._draw_danger(surf, a, b, edge, seed)
+
             if self.game is not None and self.game.selected_edge is edge:
                 self._draw_selection(surf, a, b, seed)
 
@@ -509,6 +512,35 @@ class ChartView:
 
             for year, _name in edge.losses:
                 self._margin_cross(surf, a, b, year, seed)
+
+    def _draw_danger(self, surf, a, b, edge, seed):
+        """A dangerous leg is not a different colour. It is more densely
+        hatched, and the hatching sits on the side the watching comes from."""
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / length, dy / length
+        nx, ny = -uy, ux
+
+        source = self.world.settlements[edge.danger_source] if edge.danger_source >= 0 \
+            else None
+        side = 1.0
+        if source is not None:
+            here = self._local(source.pos)
+            middle = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+            side = 1.0 if (here[0] - middle[0]) * nx + (here[1] - middle[1]) * ny > 0 else -1.0
+
+        spacing = max(5.0, 22.0 - 16.0 * min(edge.danger, 1.0))
+        reach = 4.0 + 7.0 * min(edge.danger, 1.0)
+        steps = max(2, int(length / spacing))
+        for i in range(1, steps):
+            t = i / steps
+            p = (a[0] + dx * t, a[1] + dy * t)
+            lean = 0.45 * side
+            ink.ink_line(surf, p,
+                         (p[0] + (nx * side + ux * lean) * reach,
+                          p[1] + (ny * side + uy * lean) * reach),
+                         "heavy" if edge.danger > T.BAND_ROAD_HARD else "normal",
+                         ink.seed_of(seed, "danger", i))
 
     def _draw_selection(self, surf, a, b, seed):
         """The leg the player is looking at, ticked in the margin of the line."""
@@ -579,12 +611,37 @@ class ChartView:
             else:
                 ink.circle(surf, p, r, "route", seed)
 
+            if s.alive and s.desperation > T.BAND_CALM * 100:
+                self._draw_pressure(surf, p, r, s, seed)
+
             if zoom >= T.DETAIL_ROOFS and s.alive:
                 self._draw_roofs(surf, p, r, seed)
 
             if zoom >= T.DETAIL_NAMES:
                 lettering.draw(surf, s.name, (p[0] + r + 7, p[1] - 7),
                                size=11, alpha=195, spacing=1.4, caps=True)
+
+    def _draw_pressure(self, surf, p, r, settlement, seed):
+        """How hard it is here, as ticks round the circle.
+
+        Density is the game's one continuous visual variable, and this is what
+        it carries: a settlement in trouble grows a denser ring of marks, and
+        the player reads the shape of the trouble across the whole chart
+        without a legend and without a number.
+        """
+        share = min(1.0, settlement.desperation / 100.0)
+        strokes = int(5 + 19 * share)
+        gen = ink.rng("pressure", seed)
+        start = float(gen.uniform(0, math.tau))
+        for i in range(strokes):
+            angle = start + math.tau * i / strokes
+            cos, sin = math.cos(angle), math.sin(angle)
+            inner = r * 1.12
+            reach = r * (0.28 + 0.55 * share)
+            ink.ink_line(surf, (p[0] + cos * inner, p[1] + sin * inner),
+                         (p[0] + cos * (inner + reach), p[1] + sin * (inner + reach)),
+                         "normal" if share > T.BAND_STRAINED else "faint",
+                         ink.seed_of(seed, "pressure", i))
 
     def _draw_roofs(self, surf, p, r, seed):
         """At FOCUS a circle resolves into a cluster of roofs and a jetty."""

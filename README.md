@@ -34,8 +34,8 @@ desperation and standing · `F3` reseed.
 
 ## Milestone status
 
-Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**, and
-**M1 — Shipping.**
+Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
+**M1 — Shipping**, and **M2 — the desperation gate.**
 
 * `render/ink.py` — the five primitives (wobbled line, curve, hatch, stipple,
   mark), the generated chart paper, and the one ruled line the game allows.
@@ -52,6 +52,14 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**, and
 * `world/settlement.py` — needs per head per year in loads, production of a
   settlement's surplus, continuous consumption, the end-of-winter check, and
   the plain arithmetic that says in advance which places will not survive it.
+* `world/desperation.py` — the pressure model, and the only source of anything
+  hostile in the game. Desperation rises with unmet need, isolation, deaths and
+  neighbours given up, and falls with deliveries and with post. A road is
+  dangerous because a settlement near it has nothing, the road remembers which
+  settlement, and terrain and season only scale what desperation has already
+  caused: on a calm map every road is safe. A load that is taken goes to that
+  settlement's stores, and if the post had never found the place, it goes onto
+  the chart by that fact.
 * `post/` — carrier types and the post's fleet, orders and loads, and
   `resolve.py`, where a season is decided in one deterministic pass and then
   played back over six seconds. A carrier that can make the leg twice in a
@@ -63,8 +71,8 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**, and
 * `render/panel.py`, `render/log.py` — numbers in the panel, never on the
   chart; plain declarative lines in the log.
 
-Not built yet: desperation, couriers, theft, tunnels, delegation, the ending.
-Those are M2–M6.
+Not built yet: couriers, theft, tunnels, breeding, delegation, the ending.
+Those are M3–M6.
 
 ### Tests
 
@@ -79,6 +87,9 @@ exactly its needs never declines; one given nothing declines on a schedule; a
 shortfall in autumn is counted in February) · `tests/test_shipping.py` (a load
 is moved and never created, the hold is the limit, a closed leg is refused) ·
 `tests/test_decline.py` (population never rises, under any strategy) ·
+`tests/test_desperation.py` (monotonic in every input, a calm map has no
+dangerous road, serving a settlement calms the roads beside it, and no load is
+ever taken on a leg the panel called safe) ·
 `tests/test_determinism.py` · `tests/test_tone.py` (a lint pass over every
 string the game can write).
 
@@ -130,11 +141,18 @@ problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
   until M2. Nothing hostile happens in M0, so nothing is untraceable yet.
 * **No money** (§6.5, settled). Goods and standing only. Nothing in the code
   assumes a currency and nothing will.
+* **Bands, not numbers** (§6.2, settled at M2). The panel says calm, strained,
+  desperate, and safe, watched, dangerous. The numbers behind them are in the
+  debug overlay, which is where trust in a band is checked.
+* **A settlement that stops a load goes onto the chart.** Nothing hostile is
+  allowed to happen off the document: if the player is told where the grain
+  went, they must be able to look at the place it went to.
 
 ## Open questions, at the milestone where they bite
 
-* Numeric risk or bands (§6.2, decide at M2) — the edge carries a `danger`
-  float and the panel has no risk readout yet, so either is still cheap.
+* Couriers scarce or freely recruited (§6.1, decide at M3) — recommend scarce,
+  with recruits arriving mainly from desperate settlements, which the pressure
+  model can already answer.
 
 ## Frame budget
 

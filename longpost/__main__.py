@@ -32,14 +32,18 @@ class Game:
         self.world = world_map.generate(seed)
         self.turn = 0
         self.phase = self.PLAN
-        self.population_at_start = sum(s.population
-                                       for s in self.world.known_settlements())
+        # The whole north, not only what is on the chart: settlements the post
+        # has not found are still people, and the figure has to be the truth
+        # about the world rather than the truth about the document. It is also
+        # the one number the game promises falls from the first turn.
+        self.population_at_start = sum(s.population for s in self.world.settlements)
 
         home = self.world.known_settlements()[0].id
         self.fleet = [Carrier(id=i, kind=kind, at=home)
                       for i, kind in enumerate(STARTING_FLEET)]
         self.plan = assign.Plan()
         self.resolution = None
+        self.last_resolution = None   # kept for F4, and for reading afterwards
         self.resolve_t = 0.0
 
         self.selected_edge = None
@@ -149,6 +153,7 @@ class Game:
             return
         self.resolution = resolve_mod.resolve(self.world, self.fleet, self.plan,
                                               self.turn, self.year, self.season)
+        self.last_resolution = self.resolution
         self.plan.clear()
         self.phase = self.RESOLVE
         self.resolve_t = 0.0
