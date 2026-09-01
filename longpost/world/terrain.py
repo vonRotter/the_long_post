@@ -252,7 +252,11 @@ class Terrain:
 
 
 def chaikin(points, iterations=2):
-    """Corner cutting. Two passes turn marching squares into a drawn line."""
+    """Corner cutting. Two passes turn marching squares into a drawn line.
+
+    Returns the array itself: a contour is transformed on every re-ink, and
+    handing back a list of tuples means converting it back a moment later.
+    """
     current = np.asarray(points, dtype=np.float64)
     for _ in range(iterations):
         if len(current) < 3:
@@ -262,7 +266,7 @@ def chaikin(points, iterations=2):
         out[0::2] = current * 0.75 + following * 0.25
         out[1::2] = current * 0.25 + following * 0.75
         current = out
-    return [tuple(p) for p in current]
+    return current
 
 
 def ring_area(points) -> float:

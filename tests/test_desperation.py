@@ -244,10 +244,9 @@ def test_a_settlement_that_takes_a_load_goes_onto_the_chart():
     for edge in world.edges:
         edge.danger, edge.danger_source = 1.0, stranger.id
 
-    carrier = game.fleet[0]
-    edge = next(e for e in world.known_edges()
-                if e.is_usable(game.season) and carrier.at in (e.a, e.b)
-                and carrier.can_run(game.season, e) and carrier.reaches(e))
+    carrier, edge = next((c, e) for c in game.fleet for e in world.known_edges()
+                         if e.is_usable(game.season) and c.at in (e.a, e.b)
+                         and c.can_run(game.season, e) and c.reaches(e))
     origin = world.settlements[carrier.at]
     origin.stores["GRAIN"] = 30.0
     game.select_edge(edge)

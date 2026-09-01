@@ -200,7 +200,7 @@ def generate(seed: int) -> WorldMap:
     # several levels, so none of it can disagree with itself
     # kept as arrays: the chart transforms every one of them on every re-ink
     def rings(level, minimum_points=10, least_area=0.0):
-        return [np.asarray(loop) for loop in ground.contours(level, minimum_points)
+        return [loop for loop in ground.contours(level, minimum_points)
                 if terrain_mod.ring_area(loop) >= least_area]
 
     coast_paths = rings(T.SEA_LEVEL, 6, T.MIN_ISLAND_AREA)
@@ -213,7 +213,9 @@ def generate(seed: int) -> WorldMap:
 
     settlements = []
     for i, (p, name) in enumerate(zip(points, labels)):
-        pop = int(gen.integers(*T.POP_RANGE))
+        # skewed: many small places, a few towns
+        pop = int(T.POP_SMALLEST
+                  + (T.POP_LARGEST - T.POP_SMALLEST) * gen.random() ** T.POP_SKEW)
         goods = list(("GRAIN", "FUEL", "MEDICINE", "TOOLS"))
         gen.shuffle(goods)
         surplus = tuple(goods[: 1 + int(gen.integers(0, 2))])

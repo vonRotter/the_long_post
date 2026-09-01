@@ -38,8 +38,7 @@ class Game:
         # the one number the game promises falls from the first turn.
         self.population_at_start = sum(s.population for s in self.world.settlements)
 
-        home = self.world.known_settlements()[0].id
-        self.fleet = [Carrier(id=i, kind=kind, at=home)
+        self.fleet = [Carrier(id=i, kind=kind, at=self._first_station(kind))
                       for i, kind in enumerate(STARTING_FLEET)]
         self.plan = assign.Plan()
         self.resolution = None
@@ -60,6 +59,24 @@ class Game:
                        f"{words.count(len(self.world.known_settlements()), 'settlement')}"
                        " are on it.", self.year, self.season)
         self._report_season()
+
+    def _first_station(self, kind):
+        """Where a carrier of this kind starts: the settlement on the chart it
+        has the most work from. A fleet that begins where it cannot move is a
+        fleet the player has to spend a year repositioning."""
+        carrier = Carrier(id=-1, kind=kind, at=0)
+        best, best_count = None, -1
+        for settlement in self.world.known_settlements():
+            carrier.at = settlement.id
+            count = sum(1 for edge in self.world.edges_of(settlement.id)
+                        for season in T.SEASONS
+                        if self.world.settlements[
+                            self.world.other_end(edge, settlement.id)].known
+                        and edge.is_usable(season)
+                        and carrier.can_run(season, edge) and carrier.reaches(edge))
+            if count > best_count:
+                best, best_count = settlement.id, count
+        return best if best is not None else self.world.known_settlements()[0].id
 
     # --- turn state ---
     @property

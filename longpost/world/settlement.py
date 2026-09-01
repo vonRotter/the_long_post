@@ -11,15 +11,15 @@ from .. import tuning as T
 GOODS = ("GRAIN", "FUEL", "MEDICINE", "TOOLS", "POST")
 
 # Per head, per year, in loads — the unit a carrier's hold is measured in.
-# One load of grain feeds twenty people for a year, so a hardy horse's seven
-# is most of a small settlement's year and a deep-sea vessel is several
-# settlements at once. Goods are counted in loads everywhere.
+# One load of grain feeds sixty people for a year, so a hardy horse's seven is
+# a year for a settlement of four hundred and a deep-sea vessel is a year for
+# the largest town on the chart. Goods are counted in loads everywhere.
 NEED_PER_HEAD = {
-    "GRAIN": 0.050,
-    "FUEL": 0.030,
-    "MEDICINE": 0.006,
-    "TOOLS": 0.010,
-    "POST": 0.004,
+    "GRAIN": 0.0167,
+    "FUEL": 0.0100,
+    "MEDICINE": 0.0020,
+    "TOOLS": 0.0033,
+    "POST": 0.0013,
 }
 
 
@@ -147,5 +147,6 @@ class Settlement:
         return self.abandoned_year == 0 and self.population > 0
 
     def radius(self) -> float:
-        """Chart radius, scaled to population."""
-        return 7.0 + (self.population ** 0.5) * 0.85
+        """Chart radius, scaled to population. The largest town on the chart is
+        about twice the circle of the smallest, not ten times it."""
+        return 4.0 + (self.population ** 0.55) * 0.50

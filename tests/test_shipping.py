@@ -13,11 +13,18 @@ def first_usable_edge(game, carrier):
     return None
 
 
+def a_carrier_with_work(game):
+    """Any carrier that can run something this season, and what it can run."""
+    for carrier in game.fleet:
+        edge = first_usable_edge(game, carrier)
+        if edge is not None:
+            return carrier, edge
+    raise AssertionError("the fleet should begin where it has work")
+
+
 def test_a_load_is_moved_not_created():
     game = Game(3)
-    carrier = game.fleet[0]
-    edge = first_usable_edge(game, carrier)
-    assert edge is not None
+    carrier, edge = a_carrier_with_work(game)
     origin = game.world.settlements[carrier.at]
     origin.stores["GRAIN"] = 20.0
     before = sum(s.stores.get("GRAIN", 0.0) for s in game.world.settlements)
@@ -59,9 +66,7 @@ def test_a_leg_that_is_closed_this_season_is_refused():
 
 def test_a_round_trip_brings_the_carrier_home():
     game = Game(3)
-    carrier = game.fleet[0]
-    edge = first_usable_edge(game, carrier)
-    assert edge is not None
+    carrier, edge = a_carrier_with_work(game)
     home = carrier.at
     game.select_edge(edge)
     game.selected_carrier = carrier
@@ -75,8 +80,7 @@ def test_a_round_trip_brings_the_carrier_home():
 
 def test_the_hold_is_the_limit():
     game = Game(3)
-    carrier = game.fleet[0]
-    edge = first_usable_edge(game, carrier)
+    carrier, edge = a_carrier_with_work(game)
     origin = game.world.settlements[carrier.at]
     for good in ("GRAIN", "FUEL", "MEDICINE", "TOOLS"):
         origin.stores[good] = 99.0
@@ -91,8 +95,7 @@ def test_the_hold_is_the_limit():
 
 def test_post_weighs_nothing_and_always_goes():
     game = Game(3)
-    carrier = game.fleet[0]
-    edge = first_usable_edge(game, carrier)
+    carrier, edge = a_carrier_with_work(game)
     origin = game.world.settlements[carrier.at]
     origin.stores["POST"] = 4.0
     destination = game.world.settlements[game.world.other_end(edge, carrier.at)]

@@ -68,17 +68,22 @@ DETAIL_HACHURE = 1.5      # below this, high ground is drawn as contours only
 
 # --- world ----------------------------------------------------------------
 
-WORLD_W = 2400.0
-WORLD_H = 1400.0
+WORLD_W = 2800.0
+WORLD_H = 1650.0
 
 SETTLEMENTS_START = 5
 SETTLEMENTS_MAX = 20
-SETTLEMENT_MIN_SPACING = 255.0
+SETTLEMENT_MIN_SPACING = 360.0
 SETTLEMENT_PLACEMENT_TRIES = 9000
-SETTLEMENT_COAST_BAND = 150.0     # within this of the shore is a coastal site
+SETTLEMENT_COAST_BAND = 170.0     # within this of the shore is a coastal site
 SETTLEMENT_INLAND_CHANCE = 0.4    # how often a site well inland is taken anyway
 
-POP_RANGE = (40, 260)
+# Settlements are not the same size. Most of the north lives in a handful of
+# towns and the rest in places of a few hundred, so the draw is skewed: the
+# exponent decides how rare the big ones are.
+POP_SMALLEST = 150
+POP_LARGEST = 1600
+POP_SKEW = 2.6
 STANDING_START = 55
 
 # --- the economy ----------------------------------------------------------
@@ -98,7 +103,7 @@ SHORTFALL_DEATHS = {"GRAIN": 0.100, "FUEL": 0.055, "MEDICINE": 0.025,
 # Below this, at the end of a winter, a settlement is given up: too few people
 # left to hold the place through another one. It is also what makes a
 # settlement doomed in advance — see Settlement.doomed and the spec's §3.9.
-ABANDON_POPULATION = 26
+ABANDON_POPULATION = 60
 
 # The land is a coast: open sea to the west, and a shore of skerries, islands
 # and fjords giving onto high ground in the east. All of it is one noise field
@@ -126,9 +131,9 @@ SHORE_LEVELS = (0.030,)           # contours above it, behind the shore
 MIN_ISLAND_AREA = 900.0           # smaller loops than this are not inked
 
 EDGE_NEIGHBOURS = 3               # k-nearest candidate edges per settlement
-EDGE_MAX_LENGTH = 820.0
-TRAVEL_DAYS_PER_UNIT = 0.026      # world units -> travel days
-ICE_ROAD_MAX_LENGTH = 520.0       # sea crossings longer than this never freeze
+EDGE_MAX_LENGTH = 950.0
+TRAVEL_DAYS_PER_UNIT = 0.022      # world units -> travel days
+ICE_ROAD_MAX_LENGTH = 600.0       # sea crossings longer than this never freeze
 TUNNEL_SITE_CHANCE = 0.22         # edges carrying a collapsed pre-collapse line
 
 # --- desperation, and the roads it makes dangerous -----------------------
@@ -148,7 +153,7 @@ DESPERATION_POST_RELIEF = 0.22    # what letters are worth, beyond their weight
 DESPERATION_RISE = 0.45           # how fast it climbs toward its pressures
 DESPERATION_FALL = 0.28           # and how much more slowly it comes down
 DESPERATION_REFUSAL = 92.0        # at the extreme, a settlement keeps what it has
-DESPERATION_WATCH_RADIUS = 420.0  # how far its desperation reaches down a road
+DESPERATION_WATCH_RADIUS = 500.0  # how far its desperation reaches down a road
 
 # Terrain and season scale what desperation has already caused; they never
 # create danger on their own. A finished tunnel is zero, forever.
