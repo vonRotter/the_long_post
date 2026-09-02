@@ -16,6 +16,7 @@ class Order:
     origin: int                   # settlement the run leaves from
     cargo: dict = field(default_factory=dict)
     courier_id: int = -1          # who runs it
+    digging: bool = False         # or who is not running it, and digging
 
     def total(self) -> int:
         return int(round(sum(self.cargo.values())))

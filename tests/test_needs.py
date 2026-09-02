@@ -73,17 +73,27 @@ def test_the_winter_check_clears_the_slate():
 
 
 def test_a_doomed_settlement_is_known_to_be_doomed_in_advance():
-    """Doomed means the winter leaves too few people to go on with."""
+    """Doomed means what is already owed ends the place, whatever arrives now.
+
+    A settlement that is merely short is not doomed — that one the post can
+    still save, and saving it is the game.
+    """
     small = settlement(pop=T.ABANDON_POPULATION + 4)
     small.stores = {g: 0.0 for g in GOODS}
-    assert small.doomed(4)
+    assert not small.doomed(4)          # nothing has been missed yet
+    small.consume()                     # a season goes by with nothing
+    small.consume()
+    assert small.doomed(4)              # and now it cannot be brought back
 
-    large = settlement(pop=200)
+    large = settlement(pop=400)
     large.stores = {g: 0.0 for g in GOODS}
+    large.consume()
+    large.consume()
     assert not large.doomed(4)          # it loses people; it does not end
 
     supplied = settlement(pop=T.ABANDON_POPULATION + 4)
     supply(supplied, 8.0)
+    supplied.consume()
     assert not supplied.doomed(4)
 
 

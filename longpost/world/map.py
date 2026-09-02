@@ -29,6 +29,9 @@ class Edge:
     days: float
     tunnel_site: bool = False     # a collapsed pre-collapse line, excavatable
     tunnel_built: bool = False
+    tunnel_labour: float = 0.0    # seasons of digging done
+    tunnel_tools: float = 0.0     # and what has been carried to the face
+    tunnel_fuel: float = 0.0
     ice_of: int = -1              # the open-water edge this ice road replaces
     danger: float = 0.0           # what desperation near this leg makes of it
     danger_source: int = -1       # and whose desperation that is
@@ -38,6 +41,22 @@ class Edge:
     @property
     def effective_terrain(self) -> str:
         return "TUNNEL" if self.tunnel_built else self.terrain
+
+    @property
+    def tunnel_share(self) -> float:
+        """How far along the excavation is, 0..1."""
+        if self.tunnel_built:
+            return 1.0
+        if not self.tunnel_site:
+            return 0.0
+        return min(1.0, min(self.tunnel_labour / T.TUNNEL_LABOUR,
+                            self.tunnel_tools / T.TUNNEL_TOOLS,
+                            self.tunnel_fuel / T.TUNNEL_FUEL))
+
+    @property
+    def tunnel_started(self) -> bool:
+        return self.tunnel_site and not self.tunnel_built and (
+            self.tunnel_labour > 0 or self.tunnel_tools > 0 or self.tunnel_fuel > 0)
 
     def key(self):
         return (min(self.a, self.b), max(self.a, self.b))
@@ -63,6 +82,8 @@ class WorldMap:
     depth_lines: list     # seaward contours, the depths a chart carries
     mountains: list       # contours of the high ground
     soundings: list       # (x, y, number) — texture only, they mean nothing
+    kindnesses: list = field(default_factory=list)   # (year, name, what arrived)
+    settlement_received: dict = field(default_factory=dict)
 
     def settlement(self, sid: int) -> Settlement:
         return self.settlements[sid]

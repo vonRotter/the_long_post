@@ -85,11 +85,12 @@ def target(world, settlement, year) -> float:
     """Where this settlement's desperation is heading, 0..100."""
     if not settlement.alive:
         return 0.0
+    relieved = T.DESPERATION_WEIGHTS["relief"] * relief(settlement)
     pressure = (T.DESPERATION_WEIGHTS["hunger"] * hunger(settlement)
                 + T.DESPERATION_WEIGHTS["isolation"] * isolation(settlement)
                 + T.DESPERATION_WEIGHTS["grief"] * grief(settlement, year)
                 + T.DESPERATION_WEIGHTS["bereavement"] * bereavement(world, settlement)
-                - T.DESPERATION_WEIGHTS["relief"] * relief(settlement))
+                - relieved)
     return float(min(100.0, max(0.0, pressure * 100.0)))
 
 
@@ -105,6 +106,13 @@ def settle(world, year):
             settlement.desperation = 0.0
             continue
         want = target(world, settlement, year)
+        if settlement.doomed(2) and want < settlement.desperation:
+            continue
+            # A settlement the arithmetic has already ended does not become
+            # less desperate. Not because the people are ungrateful: because
+            # nothing that arrives changes what is coming, and because the
+            # moment it did, shipping to the dying would be a way of making the
+            # roads safer — and kindness would have become a strategy. §3.9.
         ease = T.DESPERATION_RISE if want > settlement.desperation else T.DESPERATION_FALL
         settlement.desperation += (want - settlement.desperation) * ease
         settlement.desperation = float(min(100.0, max(0.0, settlement.desperation)))

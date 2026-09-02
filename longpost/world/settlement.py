@@ -10,16 +10,19 @@ from .. import tuning as T
 
 GOODS = ("GRAIN", "FUEL", "MEDICINE", "TOOLS", "POST")
 
-# Per head, per year, in loads — the unit a carrier's hold is measured in.
-# One load of grain feeds sixty people for a year, so a hardy horse's seven is
-# a year for a settlement of four hundred and a deep-sea vessel is a year for
-# the largest town on the chart. Goods are counted in loads everywhere.
+# Per head, per year, in loads. A load is a real cargo — a load of grain is a
+# year for ten people — and the holds in data/carriers.py are caravans rather
+# than animals: a horse team is several horses and their drivers, a sled team
+# several sleds, a boat its crew. The courier is who leads it.
+#
+# That sets the shape of the whole game: overland is a trickle, the sea is the
+# artery, and winter takes the artery away.
 NEED_PER_HEAD = {
-    "GRAIN": 0.0167,
-    "FUEL": 0.0100,
-    "MEDICINE": 0.0020,
-    "TOOLS": 0.0033,
-    "POST": 0.0013,
+    "GRAIN": 0.100,
+    "FUEL": 0.060,
+    "MEDICINE": 0.012,
+    "TOOLS": 0.020,
+    "POST": 0.008,
 }
 
 
@@ -68,7 +71,7 @@ class Settlement:
         A settlement at the extreme gives up nothing. It is not hostile: it has
         nothing to spare and no reason to believe more is coming.
         """
-        if self.desperation >= T.DESPERATION_REFUSAL:
+        if not self.alive or self.desperation >= T.DESPERATION_REFUSAL:
             return 0.0
         keep = self.population * NEED_PER_HEAD[good] * 0.5
         return max(0.0, self.stores.get(good, 0.0) - keep)
@@ -106,6 +109,9 @@ class Settlement:
                 out[good] = round(gap, 1)
         return out
 
+    def received_anything(self) -> bool:
+        return any(value > 0 for value in self.received.values())
+
     def winter_check(self, year) -> int:
         """The end of winter. What was not shipped is counted here."""
         toll = 0.0
@@ -130,17 +136,29 @@ class Settlement:
                    for g, w in T.SHORTFALL_DEATHS.items() if w > 0)
         return min(self.population, int(round(toll)))
 
-    def doomed(self, seasons_left=1) -> bool:
-        """True when the arithmetic has already ended this place: what winter
-        will take leaves too few people to go on with.
+    def unavoidable_deaths(self) -> int:
+        """What this winter will take whatever arrives from here on.
 
-        The panel says so plainly and in advance. Shipping to a settlement in
-        this state is a genuine waste of capacity, and it stays a waste — see
-        the spec's §3.9, and tests/test_kindness.py once M4 lands.
+        The seasons already gone short are already counted. A load that comes
+        now cannot un-miss them, which is what makes a settlement's end
+        arithmetic rather than a matter of effort.
+        """
+        toll = sum(self.shortfall.get(g, 0.0) / NEED_PER_HEAD[g] * w
+                   for g, w in T.SHORTFALL_DEATHS.items() if w > 0)
+        return min(self.population, int(round(toll)))
+
+    def doomed(self, seasons_left=1) -> bool:
+        """True when the arithmetic has already ended this place.
+
+        Not "will die if nothing arrives" — that is a settlement the post can
+        still save, and saving it is the game. This is the other one: what the
+        winter will take is already owed, and a full delivery from here on
+        leaves too few people to hold the place. Shipping to it is a genuine
+        waste of capacity and stays one. See §3.9 and tests/test_kindness.py.
         """
         if not self.alive:
             return False
-        return self.population - self.projected_deaths(seasons_left) <= T.ABANDON_POPULATION
+        return self.population - self.unavoidable_deaths() <= T.ABANDON_POPULATION
 
     @property
     def alive(self) -> bool:

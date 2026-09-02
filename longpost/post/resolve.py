@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .. import tuning as T
+from ..data import names as name_data
 from ..render import ink
 from ..world import desperation as pressure
 from ..world.settlement import GOODS
@@ -150,6 +151,11 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
                   courier_id=runner.id if runner else -1,
                   start=out_start, end=out_end)
 
+        if order.digging:
+            _dig(result, world, edge, origin, runner, carrier, year, season,
+                 out_start)
+            continue
+
         if runner is None or not runner.alive:
             leg.arrived = False
             leg.reason = "there was no one to send"
@@ -202,14 +208,6 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
             carrier.at = destination.id
             carrier.runs += 1
             edge.runs += 1
-            # they may keep working, or they may not come back. Either way the
-            # game does not judge it, and does not mention it again.
-            stays = float(np.random.default_rng(seed + 1).random()) < runner.loyalty / 100.0
-            if stays:
-                runner.at = destination.id
-            else:
-                _lose(result, world, runner, edge, year, season, leg.end,
-                      gone=True)
             result.legs.append(leg)
             result.lines.append((
                 leg.end,
@@ -220,6 +218,14 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
                 + (f" It has had nothing for {home.seasons_since_delivery} seasons."
                    if home.seasons_since_delivery else ""), False))
             _discover(result, home, leg.end)
+            # they may keep working, or they may not come back. Either way the
+            # game does not judge it, and the loss is the last word said about
+            # them — there is nothing after it.
+            stays = float(np.random.default_rng(seed + 1).random()) < runner.loyalty / 100.0
+            if stays:
+                runner.at = destination.id
+            else:
+                _lose(result, world, runner, edge, year, season, leg.end, gone=True)
             continue
 
         watcher = _hazard(world, edge, carrier, year, season, 0) if loaded else None
@@ -346,6 +352,9 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
 
     # --- the end of winter, where what was not shipped is counted ---
     if season == "WINTER":
+        world.settlement_received = {
+            s.id: {g: v for g, v in s.received.items() if v > 0}
+            for s in world.settlements}
         for settlement in world.settlements:
             if not settlement.alive:
                 continue
@@ -355,10 +364,35 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
                     0.9, f"{settlement.name} lost {deaths} over the winter."
                          f" {settlement.population} remain.", False))
             if settlement.population <= T.ABANDON_POPULATION and settlement.alive:
+                had = world.settlement_received[settlement.id]
                 settlement.abandoned_year = year
                 if settlement.known:
                     result.lines.append((0.95, f"{settlement.name} was given up in"
                                                f" year {year}.", True))
+                    if had:
+                        # The whole of what the player gets for it, and it is
+                        # recorded rather than rewarded. §3.9.
+                        result.lines.append((
+                            0.96, f"{settlement.name} received"
+                                  f" {_goods_phrase(had)} in the winter it ended.",
+                            False))
+                        world.kindnesses.append((year, settlement.name, dict(had)))
+
+    # --- what the post is for: letters, standing, and the news they carry ---
+    for leg in result.legs:
+        if not (leg.arrived and leg.cargo) or leg.taken or leg.stolen:
+            continue
+        both = (world.settlements[leg.origin], world.settlements[leg.destination])
+        gain = (T.STANDING_POST if leg.cargo.get("POST") else 0.0) + T.STANDING_GOODS
+        for settlement in both:
+            settlement.standing = min(100.0, settlement.standing + gain)
+        if leg.cargo.get("POST"):
+            _news(result, world, world.settlements[leg.destination], at=leg.end)
+    for settlement in world.settlements:
+        if settlement.alive and not any(
+                leg.destination == settlement.id and leg.cargo and leg.arrived
+                for leg in result.legs):
+            settlement.standing = max(0.0, settlement.standing - T.STANDING_DECAY)
 
     # --- the people ---
     ran = {leg.courier_id for leg in result.legs if leg.courier_id >= 0}
@@ -403,6 +437,75 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
     return result
 
 
+def _news(result, world, settlement, at):
+    """A settlement that trusts the post tells it about a neighbour.
+
+    Letters are how the network learns the shape of itself, which is why a post
+    that carries none finds the chart stops growing along with everything else.
+    """
+    if settlement.standing < T.STANDING_NEWS:
+        return
+    for edge in world.edges_of(settlement.id):
+        other = world.settlements[world.other_end(edge, settlement.id)]
+        if other.known or not other.alive:
+            continue
+        other.known = True
+        result.lines.append((
+            at, f"{settlement.name} has people at {other.name}."
+                f" It is on the chart now.", False))
+        return
+
+
+def _dig(result, world, edge, origin, runner, carrier, year, season, at):
+    """A season spent excavating instead of carrying.
+
+    The people are the cost. A courier and their team digging at a collapsed
+    line is a courier and a team not on the water, in a season the network
+    could have used them, and the panel says how many seasons are left.
+    """
+    if runner is None or not runner.alive or not edge.tunnel_site or edge.tunnel_built:
+        return
+    edge.tunnel_labour += T.TUNNEL_PER_SEASON
+    for good, held in (("TOOLS", edge.tunnel_tools), ("FUEL", edge.tunnel_fuel)):
+        want = (T.TUNNEL_TOOLS if good == "TOOLS" else T.TUNNEL_FUEL) - held
+        take = min(max(0.0, want), origin.stores.get(good, 0.0),
+                   carrier.type.capacity)
+        if take <= 0:
+            continue
+        origin.stores[good] = origin.stores.get(good, 0.0) - take
+        if good == "TOOLS":
+            edge.tunnel_tools += take
+        else:
+            edge.tunnel_fuel += take
+    runner.ran(year, season, edge, hard=False)
+    runner.at = origin.id
+
+    if edge.tunnel_share >= 1.0:
+        edge.tunnel_built = True
+        edge.danger, edge.danger_source = 0.0, -1
+        result.lines.append((
+            at, f"the {_leg_name(world, edge)} is open. It will not close again.",
+            False))
+    else:
+        left = max(0, T.TUNNEL_LABOUR - int(edge.tunnel_labour))
+        wants = []
+        if edge.tunnel_tools < T.TUNNEL_TOOLS:
+            wants.append(f"{int(T.TUNNEL_TOOLS - edge.tunnel_tools)} tools")
+        if edge.tunnel_fuel < T.TUNNEL_FUEL:
+            wants.append(f"{int(T.TUNNEL_FUEL - edge.tunnel_fuel)} fuel")
+        result.lines.append((
+            at, f"{runner.name} dug at the {_leg_name(world, edge)}."
+                f" {words_left(left)}"
+                + (f" It wants {' and '.join(wants)} at {origin.name}."
+                   if wants else ""), False))
+
+
+def words_left(seasons) -> str:
+    if seasons <= 0:
+        return "the labour is done; what it wants now is carried."
+    return f"{seasons} more {'season' if seasons == 1 else 'seasons'} of labour."
+
+
 def _recruit(result, world, couriers, year):
     """Who comes to the post looking for work.
 
@@ -410,13 +513,13 @@ def _recruit(result, world, couriers, year):
     grim source of labour and is meant to read as one. A settlement that has
     stopped trusting the post sends nobody at all.
     """
-    from ..data import names as name_data
-
     for settlement in world.settlements:
         if not (settlement.known and settlement.alive):
             continue
         if settlement.desperation < T.RECRUIT_DESPERATION:
             continue
+        if settlement.doomed(2):
+            continue        # nobody is taking work from a place that is ending
         if settlement.standing < T.RECRUIT_STANDING:
             continue
         gen = np.random.default_rng(

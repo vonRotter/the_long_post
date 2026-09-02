@@ -35,8 +35,8 @@ desperation and standing · `F3` reseed.
 ## Milestone status
 
 Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
-**M1 — Shipping**, **M2 — the desperation gate**, and
-**M3 — Couriers and loss.**
+**M1 — Shipping**, **M2 — the desperation gate**, **M3 — Couriers and loss**,
+and **M4 — the long game.**
 
 * `render/ink.py` — the five primitives (wobbled line, curve, hatch, stipple,
   mark), the generated chart paper, and the one ruled line the game allows.
@@ -69,6 +69,14 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
   desperation, the desperation on the route, and how little the destination
   needs the load — every one of which is on the panel before the season is
   committed, and never fires on fewer than two of them.
+* **The long game.** A collapsed line under a pass or a sound can be dug out:
+  ten seasons of a courier and their team not carrying anything, and thirty
+  loads of tools and twenty of fuel carried to whichever end they are standing
+  at. What it buys is the only permanent thing in the game — an edge open in
+  every season, at no danger, forever. Horses are bred in summer and a foal is
+  three years from being any use. Letters raise standing at both ends of a
+  route, and a settlement that trusts the post tells it about a neighbour it
+  had not found, which is how the chart grows.
 * `post/` — carrier types and the post's fleet, orders and loads, and
   `resolve.py`, where a season is decided in one deterministic pass and then
   played back over six seconds. A carrier that can make the leg twice in a
@@ -80,8 +88,8 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
 * `render/panel.py`, `render/log.py` — numbers in the panel, never on the
   chart; plain declarative lines in the log.
 
-Not built yet: tunnels, breeding, discovery proper, delegation, the vignettes,
-the ending. Those are M4–M6, and A3–A5.
+Not built yet: delegation and standing orders, the vignettes, the ending.
+Those are M5, M6, and A4–A5.
 
 ### Tests
 
@@ -99,6 +107,11 @@ is moved and never created, the hold is the limit, a closed leg is refused) ·
 `tests/test_desperation.py` (monotonic in every input, a calm map has no
 dangerous road, serving a settlement calms the roads beside it, and no load is
 ever taken on a leg the panel called safe) ·
+`tests/test_kindness.py` (120 headless runs: a player who always serves the
+settlements the arithmetic has ended does not beat one who never does, on
+population, settlements, standing, recruits, roads or desperation) ·
+`tests/test_long_game.py` (a tunnel takes its seasons and its loads and then
+never closes; post raises standing at both ends; a foal is three years) ·
 `tests/test_couriers.py` (wear and rest, theft monotonic in every pressure and
 never on fewer than two, a stolen load always goes to a settlement on the map,
 and a lost courier stays in the panel with their record and is never mentioned
@@ -168,11 +181,24 @@ problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
 * **A courier is lost by a roll the panel showed.** Condition and the road's
   danger are both bands on the panel before the season is committed, and they
   are the only two things the roll reads.
+* **No settlements are ever founded** (§6.4, settled at M4). The map only ever
+  loses places; the chart grows because the post finds what was already there.
+* **Doom is arithmetic, not pessimism** (§3.9). A settlement is doomed when what
+  this winter is already owed — the seasons it has already gone short — ends it
+  whatever arrives from here on. A settlement that is merely short is not
+  doomed: that one the post can still save, and saving it is the game. A doomed
+  settlement's desperation never falls again, so shipping to it cannot make a
+  road safer, produce a recruit, or buy anything at all. What the player gets is
+  the line in the log and in the summary: *Kvitvik received grain in the winter
+  it ended.*
+* **A load is a caravan's load.** One load of grain is a year for ten people,
+  and a carrier is a team rather than an animal: eight horses and four drivers,
+  three sleds, a boat and five hands, a vessel and eighteen. The courier is who
+  leads it. That is what makes overland a trickle and the sea the artery — and
+  winter taking the artery away the shape of the year.
 
 ## Open questions, at the milestone where they bite
 
-* Should settlements ever be founded (§6.4, confirm at M4) — no, and nothing in
-  the code offers a way.
 * Is ten years right (§6.3, test eight and twelve at M6).
 
 ## Frame budget

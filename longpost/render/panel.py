@@ -156,6 +156,20 @@ class Panel:
             y = self._line(layer, x + 10, y,
                            f"{road} — {watcher.name.lower()} is watching it",
                            size=9, alpha=190, colour=T.OXIDE)
+        if edge.tunnel_built:
+            y = self._line(layer, x + 10, y, "a tunnel. it does not close.",
+                           size=9, alpha=175)
+        elif edge.tunnel_site:
+            share = edge.tunnel_share
+            left = max(0, T.TUNNEL_LABOUR - int(edge.tunnel_labour))
+            y = self._line(layer, x + 10, y,
+                           f"a collapsed line under it — {int(share * 100)}% dug",
+                           size=9, alpha=170)
+            y = self._line(layer, x + 16, y,
+                           f"{left} seasons of labour, "
+                           f"{int(edge.tunnel_tools)}/{T.TUNNEL_TOOLS} tools, "
+                           f"{int(edge.tunnel_fuel)}/{T.TUNNEL_FUEL} fuel",
+                           size=9, alpha=140)
         for year, name in edge.losses:
             y = self._line(layer, x + 10, y, f"{name} was lost here in year {year}",
                            size=9, alpha=140)
@@ -173,6 +187,7 @@ class Panel:
                        f"{carrier.name}, hold {carrier.type.capacity}, "
                        f"{int(order.total()) if order else 0} loaded",
                        size=9, alpha=150)
+        y = self._line(layer, x + 16, y, carrier.type.team, size=9, alpha=125)
         if runner is None:
             y = self._line(layer, x + 10, y, "no one is standing here to run it",
                            size=9, alpha=150, colour=T.OXIDE)
@@ -221,7 +236,10 @@ class Panel:
             self._right(layer, y, world.settlements[carrier.at].name.lower(),
                         size=9, alpha=alpha - 40)
             y += 14
-            if order is not None:
+            if order is not None and order.digging:
+                y = self._line(layer, x + 10, y, "digging, not carrying", size=9,
+                               alpha=alpha - 30)
+            elif order is not None:
                 destination = world.settlements[
                     world.other_end(world.edges[order.edge_id], order.origin)]
                 load = ", ".join(f"{int(v)} {GOOD_LABEL[g]}"
@@ -324,8 +342,8 @@ class Panel:
             lines = ("the season is running", "any key — let it be told at once")
         else:
             lines = ("click a leg · tab next · c carrier · v courier · l load",
-                     "1-5 add, shift remove · x clear · wheel scrolls this panel",
-                     "space — commit the season · f — fit · f1-f3 debug")
+                     "1-5 add, shift remove · x clear · d dig · b breed",
+                     "space — commit the season · wheel scrolls · f fit · f1-f3")
         for line in lines:
             lettering.draw(layer, line, (x, y), size=9, alpha=125)
             y += 12

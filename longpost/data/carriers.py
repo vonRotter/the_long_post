@@ -17,6 +17,7 @@ class CarrierType:
     reach: float                  # travel days a season affords this carrier
     seasons: tuple                # seasons it can work at all
     terrains: tuple               # terrain it can work on
+    team: str                     # what it actually is, on the ground
     note: str
 
     def can_work(self, season, terrain) -> bool:
@@ -29,24 +30,29 @@ ICE = ("ICE", "INLAND", "TUNNEL")
 
 CARRIERS = {
     "FAST_HORSE": CarrierType(
-        "FAST_HORSE", "fast horse", capacity=3, reach=30.0,
+        "FAST_HORSE", "fast horse", capacity=8, reach=30.0,
         seasons=("AUTUMN", "SPRING", "SUMMER"), terrains=LAND,
+        team="four horses and two riders",
         note="outruns trouble, eats grain year round"),
     "HARDY_HORSE": CarrierType(
-        "HARDY_HORSE", "hardy horse", capacity=7, reach=19.0,
+        "HARDY_HORSE", "hardy horse", capacity=18, reach=19.0,
         seasons=("AUTUMN", "WINTER", "SUMMER"), terrains=LAND,
+        team="eight horses and four drivers",
         note="eats scrub, caught by anything that wants to"),
     "DOG_SLED": CarrierType(
-        "DOG_SLED", "dog sled", capacity=4, reach=28.0,
+        "DOG_SLED", "dog sled", capacity=12, reach=28.0,
         seasons=("WINTER",), terrains=ICE,
+        team="three sleds and their teams",
         note="the only thing that makes deep winter routine"),
     "SMALL_BOAT": CarrierType(
-        "SMALL_BOAT", "small boat", capacity=8, reach=25.0,
+        "SMALL_BOAT", "small boat", capacity=30, reach=25.0,
         seasons=("AUTUMN", "SPRING", "SUMMER"), terrains=WATER,
+        team="a boat and five hands",
         note="weather sensitive"),
     "DEEP_VESSEL": CarrierType(
-        "DEEP_VESSEL", "deep-sea vessel", capacity=26, reach=27.0,
+        "DEEP_VESSEL", "deep-sea vessel", capacity=110, reach=27.0,
         seasons=("AUTUMN", "SUMMER"), terrains=WATER,
+        team="a vessel and eighteen hands",
         note="enormous capacity, ruinous to lose"),
 }
 

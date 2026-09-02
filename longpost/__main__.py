@@ -43,6 +43,7 @@ class Game:
         self.fleet = [Carrier(id=i, kind=kind, at=self._first_station(kind))
                       for i, kind in enumerate(STARTING_FLEET)]
         self.couriers = self._first_couriers()
+        self.foals = []               # (year of use, kind, where)
         self.plan = assign.Plan()
         self.resolution = None
         self.last_resolution = None   # kept for F4, and for reading afterwards
@@ -213,6 +214,56 @@ class Game:
         if order.total() <= 0:
             self.plan.clear_carrier(carrier.id)
 
+    def toggle_digging(self):
+        """Put this season's team on the excavation instead of the water."""
+        edge, carrier = self.selected_edge, self.selected_carrier
+        if edge is None or carrier is None or not edge.tunnel_site or edge.tunnel_built:
+            return
+        order = self.plan.for_carrier(carrier.id)
+        runner = self.selected_courier or self._best_courier(edge)
+        if order is None:
+            order = assign.Order(edge_id=edge.id, carrier_id=carrier.id,
+                                 origin=carrier.at, cargo={},
+                                 courier_id=runner.id if runner else -1)
+            self.plan.set(order)
+        order.edge_id = edge.id
+        order.origin = carrier.at
+        order.digging = not order.digging
+        if order.digging:
+            order.cargo = {}
+
+    def breed(self):
+        """Summer only. A foal is three years from being any use."""
+        if self.season != T.BREED_SEASON:
+            self.log.write("horses are bred in summer.", self.year, self.season)
+            return
+        carrier = self.selected_carrier
+        if carrier is None or carrier.type.key not in ("FAST_HORSE", "HARDY_HORSE"):
+            self.log.write("a horse is bred from horses.", self.year, self.season)
+            return
+        where = self.world.settlements[carrier.at]
+        if where.stores.get("GRAIN", 0.0) < T.BREED_GRAIN:
+            self.log.write(f"{where.name} has not the grain to keep a foal.",
+                           self.year, self.season)
+            return
+        where.stores["GRAIN"] -= T.BREED_GRAIN
+        self.foals.append((self.year + T.BREED_YEARS, carrier.kind, where.id))
+        self.log.write(f"a foal at {where.name}, out of {carrier.name}."
+                       f" It will be of use in year {self.year + T.BREED_YEARS}.",
+                       self.year, self.season)
+
+    def _grown_foals(self):
+        """Foals that have become carriers, at the start of a year."""
+        for born, kind, where in list(self.foals):
+            if born > self.year:
+                continue
+            self.foals.remove((born, kind, where))
+            carrier = Carrier(id=len(self.fleet), kind=kind, at=where)
+            self.fleet.append(carrier)
+            self.log.write(f"{carrier.name} is in harness at"
+                           f" {self.world.settlements[where].name}.",
+                           self.year, self.season)
+
     def drop_order(self):
         if self.selected_carrier is not None:
             self.plan.clear_carrier(self.selected_carrier.id)
@@ -270,6 +321,8 @@ class Game:
             return
         self.turn += 1
         self.chart.set_season(self.season)
+        if self.season == "SPRING":
+            self._grown_foals()
         self._report_season()
 
     def _report_season(self):
@@ -403,6 +456,10 @@ def handle(event, game) -> bool:
         game.load_by_need()
     elif event.key == pygame.K_x:
         game.drop_order()
+    elif event.key == pygame.K_d:
+        game.toggle_digging()
+    elif event.key == pygame.K_b:
+        game.breed()
     elif event.key == pygame.K_TAB:
         edges = [e for e in game.world.known_edges() if e.is_usable(game.season)]
         if edges:

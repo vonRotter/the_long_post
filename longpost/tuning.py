@@ -220,6 +220,33 @@ THEFT_SCALE = 0.5                 # the whole thing, at every pressure at once
 THEFT_PRESSURES_NEEDED = 2        # never fires on fewer than this many
 THEFT_FLOOR = 0.30                # and a pressure below this is not a pressure
 
+# --- the long game --------------------------------------------------------
+
+# Tunnels: the only permanent thing. A collapsed line under a pass or a sound,
+# dug out over many seasons by people who are then not carrying anything. It
+# is priced so the post can afford one, maybe two, in ten years, and choosing
+# which leg deserves it is the largest decision on the chart.
+TUNNEL_LABOUR = 10                # seasons of a courier and their team
+TUNNEL_TOOLS = 30                 # loads, delivered to either end as it goes
+TUNNEL_FUEL = 20
+TUNNEL_PER_SEASON = 1.0           # progress a season of labour buys
+
+# Post: it weighs nothing and it is the first thing dropped. A network that
+# never carries letters finds, around year four, that nobody will work for it
+# and every road is watched.
+STANDING_POST = 7.0               # both ends of the route, per delivery
+STANDING_GOODS = 2.5
+STANDING_DECAY = 1.6              # a season with nothing from the post
+STANDING_NEWS = 72.0              # above this, a settlement tells the post
+                                  # about a neighbour it has not found
+
+# Breeding: in summer, and a foal is three years from being any use. This is
+# the long-horizon investment, and it should be made in year two by a player
+# who has understood the game.
+BREED_SEASON = "SUMMER"
+BREED_GRAIN = 12                  # loads, at the settlement doing the breeding
+BREED_YEARS = 3
+
 # --- seasons --------------------------------------------------------------
 
 SEASONS = ("AUTUMN", "WINTER", "SPRING", "SUMMER")

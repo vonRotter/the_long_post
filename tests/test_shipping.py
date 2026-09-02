@@ -1,5 +1,7 @@
 """Carriers, loads, and what a season does with them."""
 
+import pytest
+
 from longpost import tuning as T
 from longpost.__main__ import Game
 from longpost.post import assign
@@ -35,7 +37,7 @@ def test_a_load_is_moved_not_created():
     after = sum(s.stores.get("GRAIN", 0.0) for s in game.world.settlements)
     consumed = sum(s.season_need("GRAIN") for s in game.world.settlements if s.alive)
     produced = sum(s.produces("GRAIN") for s in game.world.settlements if s.alive)
-    assert after == round(before - consumed + produced, 6) or after < before
+    assert after == pytest.approx(before - consumed + produced) or after < before
 
 
 def test_a_carrier_never_runs_a_leg_its_season_forbids():
