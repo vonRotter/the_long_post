@@ -85,6 +85,7 @@ POP_SMALLEST = 150
 POP_LARGEST = 1600
 POP_SKEW = 2.6
 STANDING_START = 55
+STANDING_TOOK_IT_HOME = 6.0       # a settlement's regard, after a load reached it
 
 # --- the economy ----------------------------------------------------------
 
@@ -172,6 +173,53 @@ BAND_STRAINED = 0.62
 BAND_ROAD_SAFE = 0.12
 BAND_ROAD_HARD = 0.38
 
+# --- couriers -------------------------------------------------------------
+
+# A courier is a name, a condition, a loyalty, a home and a history. These are
+# all the numbers there are, and every one of them is on the panel.
+COURIERS_AT_START = 4
+CONDITION_UNFIT = 25.0            # below this they are not sent out
+CONDITION_WEAR_RUN = 7.0
+CONDITION_WEAR_HARD = 7.0         # a leg the season calls hard
+CONDITION_WEAR_PER_DAY = 0.55
+CONDITION_REST = 11.0             # a season standing still
+CONDITION_WEAR_CONSECUTIVE = 0.25  # each season run without one off costs more
+# A courier run into the ground may not come back. The chance is read off
+# their condition and the road they were sent down — both of them bands on the
+# panel before the season was committed.
+LOSS_FROM_CONDITION = 0.20
+LOSS_FROM_DANGER = 0.10
+
+LOYALTY_WEAR_RUN = 1.5
+LOYALTY_WEAR_HARD = 3.0
+LOYALTY_REST = 3.5
+LOYALTY_HOME = 9.0                # the post serving where they are from
+LOYALTY_HOME_NEGLECT = 2.0        # and the years it does not
+
+# Route familiarity: a real, small bonus for a leg run before, and a visible
+# count of the runs behind it.
+FAMILIARITY_PER_RUN = 0.045
+FAMILIARITY_CAP = 0.35
+
+# Recruitment. Couriers are scarce and mostly come from settlements that have
+# nothing left to keep their people — which is a grim source of labour and is
+# meant to feel like one (§6.1, settled at M3).
+RECRUIT_DESPERATION = 45.0        # below this, nobody is looking for the work
+RECRUIT_CHANCE = 0.30             # per desperate settlement, per year
+RECRUIT_STANDING = 35.0           # and only where the post is still trusted
+
+# Theft. Every pressure here is visible on the panel before the assignment.
+THEFT_WEIGHTS = {
+    "disloyalty": 0.40,
+    "condition": 0.20,
+    "home need": 0.55,
+    "route need": 0.30,
+    "cargo": 0.25,
+}
+THEFT_SCALE = 0.5                 # the whole thing, at every pressure at once
+THEFT_PRESSURES_NEEDED = 2        # never fires on fewer than this many
+THEFT_FLOOR = 0.30                # and a pressure below this is not a pressure
+
 # --- seasons --------------------------------------------------------------
 
 SEASONS = ("AUTUMN", "WINTER", "SPRING", "SUMMER")
@@ -216,5 +264,7 @@ RESOLVE_SECONDS = 6.0
 LOG_LINES_KEPT = 400
 LOG_LINES_SHOWN = 7
 
-# room kept at the foot of the panel for the key list
-PANEL_KEYS_HEIGHT = 76
+# room kept at the head of the panel for the report, and at the foot for
+# the key list. Everything between them scrolls as one document.
+PANEL_HEAD_HEIGHT = 150
+PANEL_KEYS_HEIGHT = 58

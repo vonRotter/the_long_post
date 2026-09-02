@@ -13,8 +13,10 @@ import pygame
 from . import tuning as T
 from .data.carriers import CARRIERS, STARTING_FLEET
 from .debug.overlay import Overlay
+from .data import names as name_data
 from .post import assign, resolve as resolve_mod
 from .post.carrier import Carrier
+from .post.courier import Courier
 from .render import ink, words
 from .render.chart_view import ChartView
 from .render.log import Log
@@ -40,6 +42,7 @@ class Game:
 
         self.fleet = [Carrier(id=i, kind=kind, at=self._first_station(kind))
                       for i, kind in enumerate(STARTING_FLEET)]
+        self.couriers = self._first_couriers()
         self.plan = assign.Plan()
         self.resolution = None
         self.last_resolution = None   # kept for F4, and for reading afterwards
@@ -47,6 +50,7 @@ class Game:
 
         self.selected_edge = None
         self.selected_carrier = None
+        self.selected_courier = None
 
         self.chart = ChartView(T.CHART_RECT, self.world)
         self.panel = Panel(T.PANEL_RECT)
@@ -59,6 +63,21 @@ class Game:
                        f"{words.count(len(self.world.known_settlements()), 'settlement')}"
                        " are on it.", self.year, self.season)
         self._report_season()
+
+    def _first_couriers(self):
+        """The people the post starts with, from the settlements it serves."""
+        import numpy as np
+
+        from .render.ink import seed_of
+
+        gen = np.random.default_rng(seed_of("couriers", self.seed))
+        known = self.world.known_settlements()
+        couriers = []
+        for i in range(T.COURIERS_AT_START):
+            home = known[i % len(known)]
+            couriers.append(Courier(id=i, name=name_data.person_name(gen),
+                                    home=home.id, at=home.id))
+        return couriers
 
     def _first_station(self, kind):
         """Where a carrier of this kind starts: the settlement on the chart it
@@ -101,14 +120,43 @@ class Game:
     def select_edge(self, edge):
         self.selected_edge = edge
         self.selected_carrier = None
+        self.selected_courier = None
         if edge is None:
             return
         options = assign.candidates(self.world, self.fleet, edge, self.season)
         existing = self.plan.on_edge(edge.id)
         if existing:
             self.selected_carrier = self.fleet[existing[0].carrier_id]
+            if existing[0].courier_id >= 0:
+                self.selected_courier = self.couriers[existing[0].courier_id]
         elif options:
             self.selected_carrier = options[0]
+        if self.selected_courier is None:
+            self.selected_courier = self._best_courier(edge)
+
+    def _best_courier(self, edge):
+        """The freshest person standing at either end who knows the leg."""
+        able = assign.couriers_for(self.couriers, edge, None)
+        if not able:
+            return None
+        return max(able, key=lambda c: (c.condition + c.familiarity(edge.id) * 100.0,
+                                        -c.id))
+
+    def cycle_courier(self, step=1):
+        if self.selected_edge is None:
+            return
+        able = assign.couriers_for(self.couriers, self.selected_edge, None)
+        if not able:
+            self.selected_courier = None
+            return
+        if self.selected_courier in able:
+            index = (able.index(self.selected_courier) + step) % len(able)
+        else:
+            index = 0
+        self.selected_courier = able[index]
+        order = self.order_for_selection()
+        if order is not None:
+            order.courier_id = self.selected_courier.id
 
     def cycle_carrier(self, step=1):
         if self.selected_edge is None:
@@ -138,8 +186,10 @@ class Game:
         destination = self.world.settlements[self.world.other_end(edge, carrier.at)]
         cargo = assign.fill_by_need(self.world, origin, destination,
                                     carrier.type.capacity)
+        runner = self.selected_courier or self._best_courier(edge)
         self.plan.set(assign.Order(edge_id=edge.id, carrier_id=carrier.id,
-                                   origin=origin.id, cargo=cargo))
+                                   origin=origin.id, cargo=cargo,
+                                   courier_id=runner.id if runner else -1))
 
     def adjust_cargo(self, good, delta):
         edge, carrier = self.selected_edge, self.selected_carrier
@@ -147,11 +197,15 @@ class Game:
             return
         order = self.plan.for_carrier(carrier.id)
         if order is None:
+            runner = self.selected_courier or self._best_courier(edge)
             order = assign.Order(edge_id=edge.id, carrier_id=carrier.id,
-                                 origin=carrier.at, cargo={})
+                                 origin=carrier.at, cargo={},
+                                 courier_id=runner.id if runner else -1)
             self.plan.set(order)
         order.edge_id = edge.id
         order.origin = carrier.at
+        if self.selected_courier is not None:
+            order.courier_id = self.selected_courier.id
         held = self.world.settlements[carrier.at].stores.get(good, 0.0)
         room = carrier.type.capacity - order.total() + order.cargo.get(good, 0.0)
         amount = order.cargo.get(good, 0.0) + delta
@@ -168,8 +222,9 @@ class Game:
         """Irreversible. The season resolves."""
         if self.phase != self.PLAN:
             return
-        self.resolution = resolve_mod.resolve(self.world, self.fleet, self.plan,
-                                              self.turn, self.year, self.season)
+        self.resolution = resolve_mod.resolve(self.world, self.fleet, self.couriers,
+                                              self.plan, self.turn, self.year,
+                                              self.season)
         self.last_resolution = self.resolution
         self.plan.clear()
         self.phase = self.RESOLVE
@@ -208,6 +263,7 @@ class Game:
         self.resolution = None
         self.selected_edge = None
         self.selected_carrier = None
+        self.selected_courier = None
         self.chart.routes.dirty = True
         if self.over:
             self.log.write("ten years. the post stops here.", self.year, self.season)
@@ -293,7 +349,10 @@ def handle(event, game) -> bool:
         return False
 
     if event.type == pygame.MOUSEWHEEL:
-        camera.zoom_by(T.ZOOM_STEP ** event.y, pygame.mouse.get_pos())
+        if game.panel.rect.collidepoint(pygame.mouse.get_pos()):
+            game.panel.scroll_by(-event.y * 2)      # the panel is a document too
+        else:
+            camera.zoom_by(T.ZOOM_STEP ** event.y, pygame.mouse.get_pos())
         return True
 
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -338,6 +397,8 @@ def handle(event, game) -> bool:
         game.commit()
     elif event.key == pygame.K_c:
         game.cycle_carrier(-1 if event.mod & pygame.KMOD_SHIFT else 1)
+    elif event.key == pygame.K_v:
+        game.cycle_courier(-1 if event.mod & pygame.KMOD_SHIFT else 1)
     elif event.key == pygame.K_l:
         game.load_by_need()
     elif event.key == pygame.K_x:

@@ -35,7 +35,8 @@ desperation and standing · `F3` reseed.
 ## Milestone status
 
 Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
-**M1 — Shipping**, and **M2 — the desperation gate.**
+**M1 — Shipping**, **M2 — the desperation gate**, and
+**M3 — Couriers and loss.**
 
 * `render/ink.py` — the five primitives (wobbled line, curve, hatch, stipple,
   mark), the generated chart paper, and the one ruled line the game allows.
@@ -60,6 +61,14 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
   caused: on a calm map every road is safe. A load that is taken goes to that
   settlement's stores, and if the post had never found the place, it goes onto
   the chart by that fact.
+* `post/courier.py` — people, not stat blocks. A courier is a name, a
+  condition, a loyalty, a home and a history, and the history is the part that
+  does the work because it is simply true. Competence is not hidden either: a
+  leg run before is easier, and the count of prior runs is on the panel. Theft
+  is read off five pressures — their loyalty, their condition, their home's
+  desperation, the desperation on the route, and how little the destination
+  needs the load — every one of which is on the panel before the season is
+  committed, and never fires on fewer than two of them.
 * `post/` — carrier types and the post's fleet, orders and loads, and
   `resolve.py`, where a season is decided in one deterministic pass and then
   played back over six seconds. A carrier that can make the leg twice in a
@@ -71,8 +80,8 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
 * `render/panel.py`, `render/log.py` — numbers in the panel, never on the
   chart; plain declarative lines in the log.
 
-Not built yet: couriers, theft, tunnels, breeding, delegation, the ending.
-Those are M3–M6.
+Not built yet: tunnels, breeding, discovery proper, delegation, the vignettes,
+the ending. Those are M4–M6, and A3–A5.
 
 ### Tests
 
@@ -90,8 +99,13 @@ is moved and never created, the hold is the limit, a closed leg is refused) ·
 `tests/test_desperation.py` (monotonic in every input, a calm map has no
 dangerous road, serving a settlement calms the roads beside it, and no load is
 ever taken on a leg the panel called safe) ·
-`tests/test_determinism.py` · `tests/test_tone.py` (a lint pass over every
-string the game can write).
+`tests/test_couriers.py` (wear and rest, theft monotonic in every pressure and
+never on fewer than two, a stolen load always goes to a settlement on the map,
+and a lost courier stays in the panel with their record and is never mentioned
+again) · `tests/test_determinism.py` (including a lint that fails the build if
+`hash()` reappears: Python randomises string hashing per process, so a run
+seeded through it would not replay) · `tests/test_tone.py` (a lint pass over
+every string the game can write).
 
 ## Borrowed from map maker
 
@@ -147,12 +161,19 @@ problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
 * **A settlement that stops a load goes onto the chart.** Nothing hostile is
   allowed to happen off the document: if the player is told where the grain
   went, they must be able to look at the place it went to.
+* **Couriers are scarce** (§6.1, settled at M3). Four to begin with, and
+  recruits arrive mainly from settlements desperate enough that the work is
+  worth taking — which is a grim source of labour and reads as one. A
+  settlement that has stopped trusting the post sends nobody.
+* **A courier is lost by a roll the panel showed.** Condition and the road's
+  danger are both bands on the panel before the season is committed, and they
+  are the only two things the roll reads.
 
 ## Open questions, at the milestone where they bite
 
-* Couriers scarce or freely recruited (§6.1, decide at M3) — recommend scarce,
-  with recruits arriving mainly from desperate settlements, which the pressure
-  model can already answer.
+* Should settlements ever be founded (§6.4, confirm at M4) — no, and nothing in
+  the code offers a way.
+* Is ten years right (§6.3, test eight and twelve at M6).
 
 ## Frame budget
 
@@ -160,10 +181,10 @@ Measured headless at 1280 × 720, seed 3, in milliseconds per frame:
 
 | | median | worst |
 |---|---|---|
-| idle, at CHART and at FOCUS | 7.2 | 9.0 |
-| dragging 600 px | 15.1 | 22.7 |
-| a five-notch zoom | 12.4 | 24.8 |
-| the season re-ink, over its second | 17.2 | 29.9 |
+| idle, at CHART and at FOCUS | 6.0 | 8.8 |
+| dragging 600 px | 14.7 | 23.4 |
+| a five-notch zoom | 11.7 | 27.1 |
+| the season re-ink, over its second | 14.8 | 26.8 |
 
 A full re-ink of the sheet is about 90 ms of work, which is why it is never
 done in one frame. The dials are `PAN_QUANTUM` (how much margin the bitmap

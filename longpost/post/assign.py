@@ -15,6 +15,7 @@ class Order:
     carrier_id: int
     origin: int                   # settlement the run leaves from
     cargo: dict = field(default_factory=dict)
+    courier_id: int = -1          # who runs it
 
     def total(self) -> int:
         return int(round(sum(self.cargo.values())))
@@ -49,6 +50,12 @@ class Plan:
 
     def clear(self):
         self.orders.clear()
+
+
+def couriers_for(couriers, edge, at):
+    """Who could run this leg: the people standing at either end and fit."""
+    return [c for c in couriers
+            if c.alive and c.at in (edge.a, edge.b) and c.fit_for(edge)]
 
 
 def candidates(world, fleet, edge, season):

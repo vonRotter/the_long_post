@@ -342,8 +342,8 @@ class ChartView:
         return [self._draw_edges]
 
     def _place_stages(self):
-        """The settlements, and the marks a run leaves beside them."""
-        return [self._draw_settlements]
+        """The settlements, and the marks the run leaves on the document."""
+        return [self._draw_settlements, self._draw_marks]
 
     def _draw_sea(self, surf, band=0, bands=1):
         """Faint hatching, thickening as the player draws in. No filled areas.
@@ -510,9 +510,6 @@ class ChartView:
             if self.camera.zoom >= T.DETAIL_MEASURE and reveal >= 1.0:
                 self._draw_measure(surf, a, b, edge, seed)
 
-            for year, _name in edge.losses:
-                self._margin_cross(surf, a, b, year, seed)
-
     def _draw_danger(self, surf, a, b, edge, seed):
         """A dangerous leg is not a different colour. It is more densely
         hatched, and the hatching sits on the side the watching comes from."""
@@ -588,10 +585,14 @@ class ChartView:
                          (p[0] + nx * (3 + size), p[1] + ny * (3 + size)),
                          "faint", ink.seed_of(seed, "tick", i))
 
-    def _margin_cross(self, surf, a, b, year, seed):
-        mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        ink.mark(surf, "cross", (mid[0] + 14, mid[1] - 12), ink.seed_of(seed, year), 4.5)
-        lettering.draw(surf, str(year), (mid[0] + 20, mid[1] - 10), size=8, alpha=110)
+    def _margin_cross(self, surf, a, b, year, seed, index=0):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / length, dx / length
+        t = 0.5 + 0.12 * ((index % 3) - 1)
+        p = (a[0] + dx * t + nx * 15, a[1] + dy * t + ny * 15)
+        ink.mark(surf, "cross", p, ink.seed_of(seed, "loss", year, index), 5.0)
+        lettering.draw(surf, str(year), (p[0] + 7, p[1] - 4), size=8, alpha=120)
 
     def _draw_settlements(self, surf):
         zoom = self.camera.zoom
@@ -642,6 +643,25 @@ class ChartView:
                          (p[0] + cos * (inner + reach), p[1] + sin * (inner + reach)),
                          "normal" if share > T.BAND_STRAINED else "faint",
                          ink.seed_of(seed, "pressure", i))
+
+    def _draw_marks(self, surf):
+        """What the run has written on the chart and will not take off it.
+
+        A leg where a courier was lost carries a small cross in the margin, with
+        the year beside it in tiny type. It stays for the rest of the run, on a
+        leg that is closed as much as on one that is open, because the chart is
+        a record and not a readout.
+        """
+        for edge in self.world.known_edges():
+            if not edge.losses:
+                continue
+            a = self._local(self.world.settlements[edge.a].pos)
+            b = self._local(self.world.settlements[edge.b].pos)
+            if not (self._visible(a) or self._visible(b)):
+                continue
+            seed = world_map.edge_seed(edge)
+            for index, (year, _name) in enumerate(edge.losses):
+                self._margin_cross(surf, a, b, year, seed, index)
 
     def _draw_roofs(self, surf, p, r, seed):
         """At FOCUS a circle resolves into a cluster of roofs and a jetty."""

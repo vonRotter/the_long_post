@@ -14,6 +14,7 @@ from ..render import ink
 from ..world import desperation as pressure
 from ..world.settlement import GOODS
 from . import assign
+from . import courier as courier_mod
 
 
 @dataclass
@@ -24,8 +25,10 @@ class Leg:
     origin: int
     destination: int
     cargo: dict
+    courier_id: int = -1
     arrived: bool = True
     taken: bool = False           # the load was taken on the road
+    stolen: bool = False          # the courier took it somewhere of their own
     reason: str = ""              # why it did not, in plain words
     start: float = 0.0            # when it sets out, 0..1 of the resolution
     end: float = 1.0
@@ -72,6 +75,28 @@ def _goods_phrase(cargo) -> str:
     return ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
+WEEKS = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+         "eighth", "ninth", "tenth", "eleventh", "twelfth")
+
+
+def _lose(result, world, runner, edge, year, season, at, gone=False):
+    """A courier is lost. One plain sentence, and then nothing.
+
+    §3.7 is the most important section in the specification and the easiest to
+    get wrong. There is no adjective here, no second sentence, and the game
+    never mentions them again. What is left is the panel next season, where
+    their name still is, and a cross in the margin of this leg on the chart.
+    """
+    runner.lost_year = year
+    runner.lost_where = _leg_name(world, edge)
+    week = WEEKS[ink.seed_of("week", year, season, runner.id) % len(WEEKS)]
+    edge.losses.append((year, runner.name))
+    verb = "did not come back from" if gone else "was lost on"
+    result.lines.append((
+        at, f"{runner.name} {verb} the {_leg_name(world, edge)} in the {week}"
+            f" week of {season.lower()}.", True))
+
+
 def _leg_name(world, edge) -> str:
     return (f"{world.settlements[edge.a].name.lower()} — "
             f"{world.settlements[edge.b].name.lower()} leg")
@@ -103,7 +128,7 @@ def _why_watched(settlement) -> str:
     return f"{settlement.name} lost people last winter."
 
 
-def resolve(world, fleet, plan, turn, year, season) -> Resolution:
+def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
     """Run the season. Applies every effect, and returns what to show."""
     result = Resolution(year=year, season=season)
     orders = list(plan)
@@ -114,15 +139,24 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
         carrier = fleet[order.carrier_id]
         origin = world.settlements[order.origin]
         destination = world.settlements[world.other_end(edge, order.origin)]
+        runner = couriers[order.courier_id] if 0 <= order.courier_id < len(couriers) \
+            else None
 
         spacing = 0.45 / max(len(orders), 1)
         out_start = index * spacing
         out_end = min(0.94, out_start + 0.42)
         leg = Leg(edge_id=edge.id, carrier_id=carrier.id, origin=origin.id,
                   destination=destination.id, cargo={},
+                  courier_id=runner.id if runner else -1,
                   start=out_start, end=out_end)
 
-        if not edge.is_usable(season):
+        if runner is None or not runner.alive:
+            leg.arrived = False
+            leg.reason = "there was no one to send"
+        elif not runner.fit_for(edge):
+            leg.arrived = False
+            leg.reason = f"{runner.name} is in no condition to run it"
+        elif not edge.is_usable(season):
             leg.arrived = False
             leg.reason = "the leg is closed this season"
         elif not carrier.can_run(season, edge):
@@ -139,6 +173,8 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
                                  False))
             continue
 
+        hard = edge.availability(season) == T.HARD
+
         # load what is actually there, up to the hold
         room = carrier.type.capacity
         loaded = {}
@@ -150,6 +186,41 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
             loaded[good] = float(take)
             room -= take
         leg.cargo = loaded
+
+        pressures = courier_mod.theft_pressures(world, runner, edge, loaded, destination)
+        chance = courier_mod.theft_chance(pressures)
+        seed = ink.seed_of("theft", world.seed, year, season, edge.id, runner.id)
+        if loaded and chance > 0 and float(np.random.default_rng(seed).random()) < chance:
+            home = world.settlements[runner.home]
+            leg.stolen = True
+            for good, amount in loaded.items():
+                home.stores[good] = home.stores.get(good, 0.0) + amount
+            home.seasons_since_delivery = 0
+            home.standing = min(100.0, home.standing + T.STANDING_TOOK_IT_HOME)
+            runner.took.append((year, edge.id, home.id))
+            runner.ran(year, season, edge, hard)
+            carrier.at = destination.id
+            carrier.runs += 1
+            edge.runs += 1
+            # they may keep working, or they may not come back. Either way the
+            # game does not judge it, and does not mention it again.
+            stays = float(np.random.default_rng(seed + 1).random()) < runner.loyalty / 100.0
+            if stays:
+                runner.at = destination.id
+            else:
+                _lose(result, world, runner, edge, year, season, leg.end,
+                      gone=True)
+            result.legs.append(leg)
+            result.lines.append((
+                leg.end,
+                f"{runner.name} took {_goods_phrase(loaded)} to {home.name}.", False))
+            result.lines.append((
+                leg.end,
+                f"{home.name} is where {runner.name.split()[0]} is from."
+                + (f" It has had nothing for {home.seasons_since_delivery} seasons."
+                   if home.seasons_since_delivery else ""), False))
+            _discover(result, home, leg.end)
+            continue
 
         watcher = _hazard(world, edge, carrier, year, season, 0) if loaded else None
         if watcher is not None:
@@ -185,6 +256,15 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
         edge.runs += 1
         if loaded:
             destination.seasons_since_delivery = 0
+
+        runner.ran(year, season, edge, hard)
+        runner.at = destination.id
+        runner.delivered += int(round(sum(loaded.values())))
+        risk = runner.risk_on(edge)
+        if risk > 0:
+            seed = ink.seed_of("loss", world.seed, year, season, edge.id, runner.id)
+            if float(np.random.default_rng(seed).random()) < risk:
+                _lose(result, world, runner, edge, year, season, leg.end)
 
         result.legs.append(leg)
         if loaded:
@@ -280,6 +360,25 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
                     result.lines.append((0.95, f"{settlement.name} was given up in"
                                                f" year {year}.", True))
 
+    # --- the people ---
+    ran = {leg.courier_id for leg in result.legs if leg.courier_id >= 0}
+    for runner in couriers:
+        if not runner.alive:
+            continue
+        if runner.id not in ran:
+            runner.rested()
+        home = world.settlements[runner.home]
+        if home.alive:
+            share = min(1.0, sum(home.received.values())
+                        / max(sum(home.needs().values()), 1e-6))
+            if share > 0.05:
+                runner.home_served(share)
+            elif season == "WINTER":
+                runner.home_neglected()
+
+    if season == "SPRING":
+        _recruit(result, world, couriers, year)
+
     # --- and then the pressures, which is where the next season's roads
     # come from. Nothing here is random: it is arithmetic on what the player
     # did and did not ship.
@@ -302,6 +401,40 @@ def resolve(world, fleet, plan, turn, year, season) -> Resolution:
                      f"{_why_watched(source)}", False))
 
     return result
+
+
+def _recruit(result, world, couriers, year):
+    """Who comes to the post looking for work.
+
+    Mostly people from settlements with nothing left to keep them, which is a
+    grim source of labour and is meant to read as one. A settlement that has
+    stopped trusting the post sends nobody at all.
+    """
+    from ..data import names as name_data
+
+    for settlement in world.settlements:
+        if not (settlement.known and settlement.alive):
+            continue
+        if settlement.desperation < T.RECRUIT_DESPERATION:
+            continue
+        if settlement.standing < T.RECRUIT_STANDING:
+            continue
+        gen = np.random.default_rng(
+            ink.seed_of("recruit", world.seed, year, settlement.id))
+        if gen.random() > T.RECRUIT_CHANCE:
+            continue
+        taken = {c.name for c in couriers}
+        name = name_data.person_name(gen)
+        for _ in range(12):
+            if name not in taken:
+                break
+            name = name_data.person_name(gen)
+        couriers.append(courier_mod.Courier(
+            id=len(couriers), name=name, home=settlement.id, at=settlement.id,
+            joined_year=year))
+        result.lines.append((
+            0.98, f"{name} of {settlement.name} has taken work with the post.",
+            False))
 
 
 def plan_is_runnable(world, fleet, plan, season):
