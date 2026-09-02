@@ -14,6 +14,8 @@ from longpost.post import assign
 
 SEEDS = range(60)          # 60 seeds, two strategies: 120 headless runs
 
+pytestmark = pytest.mark.slow
+
 
 def legs_for(game, carrier):
     return [e for e in game.world.known_edges()

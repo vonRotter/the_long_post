@@ -42,6 +42,7 @@ class StandingOrder:
     started_year: int = 1
     runs: int = 0
     idle: int = 0                 # seasons it could not send anything
+    priority: tuple = ()          # goods, in order; empty means load by need
 
     def label(self, world, fleet, couriers) -> str:
         edge = world.edges[self.edge_id]
@@ -132,7 +133,9 @@ def standing_orders(world, fleet, couriers, standing, season, plan):
             continue
         origin = world.settlements[carrier.at]
         destination = world.settlements[world.other_end(edge, carrier.at)]
-        cargo = fill_by_need(world, origin, destination, carrier.type.capacity)
+        cargo = (fill_by_priority(origin, route.priority, carrier.type.capacity)
+                 if route.priority
+                 else fill_by_need(world, origin, destination, carrier.type.capacity))
         if not cargo:
             notices.append(_idle(route,
                                  f"the {legs} had nothing to carry from"
@@ -195,6 +198,26 @@ def prospective_load(world, origin, destination, capacity) -> int:
     """How much a run from here to there could actually carry. Used to choose
     between legs without committing to one."""
     return int(round(sum(fill_by_need(world, origin, destination, capacity).values())))
+
+
+def fill_by_priority(origin, priority, capacity) -> dict:
+    """A load made to a standing instruction: these goods, in this order.
+
+    The other half of §3.13's "a cargo priority". A route the player set up to
+    carry fuel keeps carrying fuel, whatever the far end's arithmetic says this
+    season — which is the point of telling it what to carry.
+    """
+    cargo = {}
+    room = capacity
+    for good in priority:
+        if room <= 0:
+            break
+        take = int(min(room, origin.spare(good)))
+        if take <= 0:
+            continue
+        cargo[good] = take
+        room -= take
+    return cargo
 
 
 def fill_by_need(world, origin, destination, capacity) -> dict:

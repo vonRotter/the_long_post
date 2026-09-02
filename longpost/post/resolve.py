@@ -45,6 +45,26 @@ class Resolution:
     vignettes: list = field(default_factory=list)  # (at, kind, subject)
     duration: float = T.RESOLVE_SECONDS
 
+    def consequential(self):
+        """The leg worth watching, if any.
+
+        A run that does not come back outranks one that is stopped, which
+        outranks one that is stolen, which outranks the largest load moving.
+        Nothing here decides anything; it only says where to look.
+        """
+        if not self.legs:
+            return None
+
+        def weight(leg):
+            lost = any(kind in ("storm", "ice", "avalanche")
+                       for _at, kind, _subject in self.vignettes
+                       if abs(_at - leg.end) < 1e-6)
+            return (3 if lost else 0) + (2 if leg.taken else 0) \
+                + (2 if leg.stolen else 0) + min(1.0, sum(leg.cargo.values()) / 40.0)
+
+        best = max(self.legs, key=weight)
+        return best if weight(best) > 0 else None
+
     def frame(self, at, kind, subject=""):
         """A glance at something. Six kinds, and rare because they are rare
         events — the queue shows one at most, and the world does not stop."""
@@ -171,256 +191,348 @@ def _why_watched(settlement) -> str:
     return f"{settlement.name} lost people last winter."
 
 
+@dataclass
+class Season:
+    """What a phase of the resolution needs to do its work.
+
+    The season is resolved in phases — the runs, the consumption, the winter
+    check, the standing and the news, the people, the pressures — and each of
+    them is a function that takes this. It is a plain holder and owns nothing.
+    """
+    world: object
+    fleet: list
+    couriers: list
+    year: int
+    season: str
+    result: Resolution
+
+    def courier(self, courier_id):
+        if 0 <= courier_id < len(self.couriers):
+            return self.couriers[courier_id]
+        return None
+
+    def other_end(self, edge, settlement_id):
+        return self.world.settlements[self.world.other_end(edge, settlement_id)]
+
+
 def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
-    """Run the season. Applies every effect, and returns what to show."""
+    """Run the season, in the order the world runs it.
+
+    Every effect is applied here, once, deterministically, and the animation
+    plays back what this decided. The phases are in the order they happen in:
+    the runs go out, what is left is eaten, the winter counts what was not
+    shipped, letters do their work, the people are worn or rested, and the
+    pressures settle into the roads of the season after.
+    """
     result = Resolution(year=year, season=season)
-    orders = list(plan)
+    context = Season(world=world, fleet=fleet, couriers=couriers, year=year,
+                     season=season, result=result)
     # how everyone stood before the season took anything out of them
     bands_before = {c.id: _standing_of(c) for c in couriers}
 
-    # --- the runs ---
+    _run_orders(context, list(plan))
+    _eat(context)
+    if season == "WINTER":
+        _count_the_winter(context)
+    _letters_and_standing(context)
+    _the_people(context, bands_before)
+    if season == "SPRING":
+        _recruit(result, world, couriers, year)
+    _settle_the_pressures(context)
+    return result
+
+
+# --- the runs ---------------------------------------------------------------
+
+
+def _run_orders(context, orders):
     for index, order in enumerate(orders):
-        edge = world.edges[order.edge_id]
-        carrier = fleet[order.carrier_id]
-        origin = world.settlements[order.origin]
-        destination = world.settlements[world.other_end(edge, order.origin)]
-        runner = couriers[order.courier_id] if 0 <= order.courier_id < len(couriers) \
-            else None
+        _run_one(context, order, index, len(orders))
 
-        spacing = 0.45 / max(len(orders), 1)
-        out_start = index * spacing
-        out_end = min(0.94, out_start + 0.42)
-        leg = Leg(edge_id=edge.id, carrier_id=carrier.id, origin=origin.id,
-                  destination=destination.id, cargo={},
-                  courier_id=runner.id if runner else -1,
-                  start=out_start, end=out_end)
 
-        if order.digging:
-            _dig(result, world, edge, origin, runner, carrier, year, season,
-                 out_start)
-            continue
+def _run_one(context, order, index, total):
+    world, result = context.world, context.result
+    edge = world.edges[order.edge_id]
+    carrier = context.fleet[order.carrier_id]
+    origin = world.settlements[order.origin]
+    destination = context.other_end(edge, order.origin)
+    runner = context.courier(order.courier_id)
 
-        if runner is None or not runner.alive:
-            leg.arrived = False
-            leg.reason = "there was no one to send"
-        elif not runner.fit_for(edge):
-            leg.arrived = False
-            leg.reason = f"{runner.name} is in no condition to run it"
-        elif not edge.is_usable(season):
-            leg.arrived = False
-            leg.reason = "the leg is closed this season"
-        elif not carrier.can_run(season, edge):
-            leg.arrived = False
-            leg.reason = f"a {carrier.type.name} does not work this leg in {season.lower()}"
-        elif not carrier.reaches(edge):
-            leg.arrived = False
-            leg.reason = (f"{edge.days:g} days is beyond a {carrier.type.name}"
-                          f" in one season")
+    spacing = 0.45 / max(total, 1)
+    out_start = index * spacing
+    out_end = min(0.94, out_start + 0.42)
+    leg = Leg(edge_id=edge.id, carrier_id=carrier.id, origin=origin.id,
+              destination=destination.id, cargo={},
+              courier_id=runner.id if runner else -1,
+              start=out_start, end=out_end)
 
-        if not leg.arrived:
-            result.legs.append(leg)
-            result.say(leg.start, f"{carrier.name} did not set out: {leg.reason}.")
-            continue
+    if order.digging:
+        _dig(result, world, edge, origin, runner, carrier, context.year,
+             context.season, out_start)
+        return
 
-        hard = edge.availability(season) == T.HARD
-
-        # load what is actually there, up to the hold
-        room = carrier.type.capacity
-        loaded = {}
-        for good, amount in sorted(order.cargo.items()):
-            take = min(room, int(amount), int(origin.stores.get(good, 0.0)))
-            if take <= 0:
-                continue
-            origin.stores[good] = origin.stores.get(good, 0.0) - take
-            loaded[good] = float(take)
-            room -= take
-        leg.cargo = loaded
-
-        pressures = courier_mod.theft_pressures(world, runner, edge, loaded, destination)
-        chance = courier_mod.theft_chance(pressures)
-        seed = ink.seed_of("theft", world.seed, year, season, edge.id, runner.id)
-        if loaded and chance > 0 and float(np.random.default_rng(seed).random()) < chance:
-            home = world.settlements[runner.home]
-            leg.stolen = True
-            for good, amount in loaded.items():
-                home.stores[good] = home.stores.get(good, 0.0) + amount
-            home.seasons_since_delivery = 0
-            home.standing = min(100.0, home.standing + T.STANDING_TOOK_IT_HOME)
-            runner.took.append((year, edge.id, home.id))
-            runner.ran(year, season, edge, hard)
-            carrier.at = destination.id
-            carrier.runs += 1
-            edge.runs += 1
-            result.legs.append(leg)
-            result.say(leg.end,
-                       f"{runner.name} took {_goods_phrase(loaded)} to {home.name}.")
-            result.say(leg.end,
-                       f"{home.name} is where {runner.name.split()[0]} is from."
-                       + (f" It has had nothing for"
-                          f" {home.seasons_since_delivery} seasons."
-                          if home.seasons_since_delivery else ""))
-            _discover(result, home, leg.end)
-            # they may keep working, or they may not come back. Either way the
-            # game does not judge it, and the loss is the last word said about
-            # them — there is nothing after it.
-            stays = float(np.random.default_rng(seed + 1).random()) < runner.loyalty / 100.0
-            if stays:
-                runner.at = destination.id
-            else:
-                _lose(result, world, runner, edge, year, season, leg.end, gone=True)
-            continue
-
-        watcher = _hazard(world, edge, carrier, year, season, 0) if loaded else None
-        if watcher is not None:
-            # The load is taken by the people whose road this is. It is not a
-            # faction and it is not an ambush: it is a settlement with nothing,
-            # and the game says which one and how long it has had nothing.
-            leg.taken = True
-            for good, amount in loaded.items():
-                watcher.stores[good] = watcher.stores.get(good, 0.0) + amount
-            watcher.seasons_since_delivery = 0
-            carrier.at = destination.id
-            carrier.runs += 1
-            carrier.history.append((year, season, edge.id))
-            edge.runs += 1
-            result.legs.append(leg)
-            result.frame(leg.end, "bandits", watcher.name)
-            result.say(leg.end,
-                       f"{carrier.name} was stopped on the {_leg_name(world, edge)}."
-                       f" {_goods_phrase(loaded)} went to {watcher.name}.", accent=True)
-            if not _discover(result, watcher, leg.end):
-                result.say(leg.end, _why_watched(watcher))
-            continue
-
-        destination_was = destination.projected_shortfall(2)
-        for good, amount in loaded.items():
-            destination.stores[good] = destination.stores.get(good, 0.0) + amount
-            destination.received[good] = destination.received.get(good, 0.0) + amount
-
-        carrier.at = destination.id
-        carrier.runs += 1
-        carrier.delivered += int(round(sum(loaded.values())))
-        carrier.history.append((year, season, edge.id))
-        edge.runs += 1
-        if loaded:
-            destination.seasons_since_delivery = 0
-
-        runner.ran(year, season, edge, hard)
-        runner.at = destination.id
-        runner.delivered += int(round(sum(loaded.values())))
-        risk = runner.risk_on(edge)
-        if risk > 0:
-            seed = ink.seed_of("loss", world.seed, year, season, edge.id, runner.id)
-            if float(np.random.default_rng(seed).random()) < risk:
-                _lose(result, world, runner, edge, year, season, leg.end)
-
+    leg.reason = _why_not(context, edge, carrier, runner)
+    if leg.reason:
+        leg.arrived = False
         result.legs.append(leg)
-        if loaded:
-            result.say(leg.end,
-                       f"{carrier.name} carried {_goods_phrase(loaded)} to"
-                       f" {destination.name}.", routine=order.standing)
-        else:
-            result.say(leg.end, f"{carrier.name} went empty to {destination.name}.")
-        if loaded and destination_was:
-            still = destination.projected_shortfall(2)
-            closed = [g for g in destination_was if g not in still]
-            # the counterweight, and it is tied to the pressure model: an
-            # arrival is worth framing when the place needed it, not when the
-            # load happened to be large
-            if closed and destination.desperation >= T.BAND_CALM * 100:
-                result.frame(leg.end, "arrival", destination.name)
-            if closed:
-                # what went unusually well is never routine, however it was ordered
-                result.say(leg.end, f"{destination.name} is no longer short of "
-                                    f"{', '.join(g.lower() for g in closed)}.")
+        result.say(leg.start, f"{carrier.name} did not set out: {leg.reason}.")
+        return
 
-        # the season affords the leg both ways: the carrier comes home, and it
-        # comes home with whatever the place it left is short of
-        if not carrier.round_trip(edge):
+    hard = edge.availability(context.season) == T.HARD
+    leg.cargo = _load(origin, order.cargo, carrier.type.capacity)
+
+    if _taken_by_the_courier(context, leg, edge, carrier, runner, hard):
+        return
+    if _taken_on_the_road(context, leg, edge, carrier, index=0):
+        return
+
+    _arrive(context, leg, edge, carrier, runner, origin, destination, hard, order)
+    _come_back(context, leg, edge, carrier, origin, destination, order, out_end)
+
+
+def _why_not(context, edge, carrier, runner) -> str:
+    """Why this run does not set out, in plain words, or nothing."""
+    season = context.season
+    if runner is None or not runner.alive:
+        return "there was no one to send"
+    if not runner.fit_for(edge):
+        return f"{runner.name} is in no condition to run it"
+    if not edge.is_usable(season):
+        return "the leg is closed this season"
+    if not carrier.can_run(season, edge):
+        return f"a {carrier.type.name} does not work this leg in {season.lower()}"
+    if not carrier.reaches(edge):
+        return f"{edge.days:g} days is beyond a {carrier.type.name} in one season"
+    return ""
+
+
+def _load(origin, wanted, capacity) -> dict:
+    """What is actually there, up to the hold."""
+    room = capacity
+    loaded = {}
+    for good, amount in sorted(wanted.items()):
+        take = min(room, int(amount), int(origin.stores.get(good, 0.0)))
+        if take <= 0:
             continue
-        home_cargo = assign.fill_by_need(world, destination, origin,
-                                         carrier.type.capacity)
-        back = Leg(edge_id=edge.id, carrier_id=carrier.id, origin=destination.id,
-                   destination=origin.id, cargo={}, returning=True,
-                   start=out_end, end=min(1.0, out_end + 0.42))
-        room = carrier.type.capacity
-        lifted = {}
-        for good, amount in sorted(home_cargo.items()):
-            take = min(room, int(amount), int(destination.stores.get(good, 0.0)))
-            if take <= 0:
-                continue
-            destination.stores[good] = destination.stores.get(good, 0.0) - take
-            lifted[good] = float(take)
-            room -= take
+        origin.stores[good] = origin.stores.get(good, 0.0) - take
+        loaded[good] = float(take)
+        room -= take
+    return loaded
 
-        watcher = _hazard(world, edge, carrier, year, season, 1) if lifted else None
-        if watcher is not None:
-            back.taken = True
-            for good, amount in lifted.items():
-                watcher.stores[good] = watcher.stores.get(good, 0.0) + amount
-            watcher.seasons_since_delivery = 0
-            carrier.at = origin.id
-            edge.runs += 1
-            result.legs.append(back)
-            result.say(back.end,
-                       f"{carrier.name} was stopped coming back over the"
-                       f" {_leg_name(world, edge)}. {_goods_phrase(lifted)} went to"
-                       f" {watcher.name}.", accent=True)
-            if not _discover(result, watcher, back.end):
-                result.say(back.end, _why_watched(watcher))
-            continue
 
-        for good, amount in lifted.items():
-            origin.stores[good] = origin.stores.get(good, 0.0) + amount
-            origin.received[good] = origin.received.get(good, 0.0) + amount
-            back.cargo[good] = amount
+def _taken_by_the_courier(context, leg, edge, carrier, runner, hard) -> bool:
+    """Theft, from pressures the panel showed before the season was committed."""
+    world, result = context.world, context.result
+    destination = world.settlements[leg.destination]
+    if not leg.cargo:
+        return False
+    pressures = courier_mod.theft_pressures(world, runner, edge, leg.cargo, destination)
+    chance = courier_mod.theft_chance(pressures)
+    if chance <= 0:
+        return False
+    seed = ink.seed_of("theft", world.seed, context.year, context.season, edge.id,
+                       runner.id)
+    if float(np.random.default_rng(seed).random()) >= chance:
+        return False
+
+    home = world.settlements[runner.home]
+    leg.stolen = True
+    for good, amount in leg.cargo.items():
+        home.stores[good] = home.stores.get(good, 0.0) + amount
+    home.seasons_since_delivery = 0
+    home.standing = min(100.0, home.standing + T.STANDING_TOOK_IT_HOME)
+    runner.took.append((context.year, edge.id, home.id))
+    runner.ran(context.year, context.season, edge, hard)
+    carrier.at = leg.destination
+    carrier.runs += 1
+    edge.runs += 1
+    edge.thefts.append((context.year, runner.name, home.name))
+    result.legs.append(leg)
+    result.say(leg.end, f"{runner.name} took {_goods_phrase(leg.cargo)} to"
+                        f" {home.name}.")
+    result.say(leg.end,
+               f"{home.name} is where {runner.name.split()[0]} is from."
+               + (f" It has had nothing for {home.seasons_since_delivery} seasons."
+                  if home.seasons_since_delivery else ""))
+    _discover(result, home, leg.end)
+    # they may keep working, or they may not come back. Either way the game does
+    # not judge it, and the loss is the last word said about them.
+    stays = float(np.random.default_rng(seed + 1).random()) < runner.loyalty / 100.0
+    if stays:
+        runner.at = leg.destination
+    else:
+        _lose(result, world, runner, edge, context.year, context.season, leg.end,
+              gone=True)
+    return True
+
+
+def _taken_on_the_road(context, leg, edge, carrier, index) -> bool:
+    """The people whose road this is take the load.
+
+    Not a faction and not an ambush: a settlement with nothing. The game says
+    which one, and how long it has had nothing.
+    """
+    world, result = context.world, context.result
+    if not leg.cargo:
+        return False
+    watcher = _hazard(world, edge, carrier, context.year, context.season, index)
+    if watcher is None:
+        return False
+
+    leg.taken = True
+    for good, amount in leg.cargo.items():
+        watcher.stores[good] = watcher.stores.get(good, 0.0) + amount
+    watcher.seasons_since_delivery = 0
+    carrier.at = leg.destination
+    carrier.runs += 1
+    carrier.history.append((context.year, context.season, edge.id))
+    edge.runs += 1
+    edge.thefts.append((context.year, "", watcher.name))
+    result.legs.append(leg)
+    result.frame(leg.end, "bandits", watcher.name)
+    coming_back = " coming back over the" if leg.returning else " on the"
+    result.say(leg.end,
+               f"{carrier.name} was stopped{coming_back} {_leg_name(world, edge)}."
+               f" {_goods_phrase(leg.cargo)} went to {watcher.name}.", accent=True)
+    if not _discover(result, watcher, leg.end):
+        result.say(leg.end, _why_watched(watcher))
+    return True
+
+
+def _arrive(context, leg, edge, carrier, runner, origin, destination, hard, order):
+    """The load is put down, and the run is written into everything it touched."""
+    world, result = context.world, context.result
+    was_short = destination.projected_shortfall(2)
+    for good, amount in leg.cargo.items():
+        destination.stores[good] = destination.stores.get(good, 0.0) + amount
+        destination.received[good] = destination.received.get(good, 0.0) + amount
+
+    carrier.at = destination.id
+    carrier.runs += 1
+    carrier.delivered += int(round(sum(leg.cargo.values())))
+    carrier.history.append((context.year, context.season, edge.id))
+    edge.runs += 1
+    if leg.cargo:
+        destination.seasons_since_delivery = 0
+
+    runner.ran(context.year, context.season, edge, hard)
+    runner.at = destination.id
+    runner.delivered += int(round(sum(leg.cargo.values())))
+    _may_not_come_back(context, leg, edge, runner)
+
+    result.legs.append(leg)
+    if leg.cargo:
+        result.say(leg.end, f"{carrier.name} carried {_goods_phrase(leg.cargo)} to"
+                            f" {destination.name}.", routine=order.standing)
+    else:
+        result.say(leg.end, f"{carrier.name} went empty to {destination.name}.")
+
+    if not (leg.cargo and was_short):
+        return
+    still = destination.projected_shortfall(2)
+    closed = [g for g in was_short if g not in still]
+    if not closed:
+        return
+    # the counterweight, tied to the pressure model: an arrival is worth framing
+    # when the place needed it, not when the load happened to be large
+    if destination.desperation >= T.BAND_CALM * 100:
+        result.frame(leg.end, "arrival", destination.name)
+    # what went unusually well is never routine, however it was ordered
+    result.say(leg.end, f"{destination.name} is no longer short of "
+                        f"{', '.join(g.lower() for g in closed)}.")
+
+
+def _may_not_come_back(context, leg, edge, runner):
+    """The risk the panel showed: how worn they are, and how bad the road is."""
+    risk = runner.risk_on(edge)
+    if risk <= 0:
+        return
+    seed = ink.seed_of("loss", context.world.seed, context.year, context.season,
+                       edge.id, runner.id)
+    if float(np.random.default_rng(seed).random()) < risk:
+        _lose(context.result, context.world, runner, edge, context.year,
+              context.season, leg.end)
+
+
+def _come_back(context, leg, edge, carrier, origin, destination, order, out_end):
+    """The season affords the leg both ways, so the carrier comes home — and it
+    comes home with whatever the place it left is short of."""
+    world, result = context.world, context.result
+    if not carrier.round_trip(edge):
+        return
+    wanted = assign.fill_by_need(world, destination, origin, carrier.type.capacity)
+    back = Leg(edge_id=edge.id, carrier_id=carrier.id, origin=destination.id,
+               destination=origin.id, cargo={}, returning=True,
+               start=out_end, end=min(1.0, out_end + 0.42))
+    back.cargo = _load(destination, wanted, carrier.type.capacity)
+
+    if _taken_on_the_road(context, back, edge, carrier, index=1):
         carrier.at = origin.id
-        edge.runs += 1
-        if back.cargo:
-            origin.seasons_since_delivery = 0
-            result.say(back.end,
-                       f"{carrier.name} brought {_goods_phrase(back.cargo)} back to"
-                       f" {origin.name}.", routine=order.standing)
-        result.legs.append(back)
+        return
 
-    # --- the season itself ---
-    for settlement in world.settlements:
+    lifted = back.cargo
+    for good, amount in lifted.items():
+        origin.stores[good] = origin.stores.get(good, 0.0) + amount
+        origin.received[good] = origin.received.get(good, 0.0) + amount
+    carrier.at = origin.id
+    edge.runs += 1
+    if lifted:
+        origin.seasons_since_delivery = 0
+        result.say(back.end, f"{carrier.name} brought {_goods_phrase(lifted)} back to"
+                             f" {origin.name}.", routine=order.standing)
+    result.legs.append(back)
+
+
+# --- the season itself ------------------------------------------------------
+
+
+def _eat(context):
+    """What is produced is produced, and what is there is eaten."""
+    for settlement in context.world.settlements:
         if not settlement.alive:
             continue
         settlement.produce()
         settlement.consume()
         if not any(leg.destination == settlement.id and leg.cargo and leg.arrived
-                   for leg in result.legs):
+                   for leg in context.result.legs):
             settlement.seasons_since_delivery += 1
 
-    # --- the end of winter, where what was not shipped is counted ---
-    if season == "WINTER":
-        world.settlement_received = {
-            s.id: {g: v for g, v in s.received.items() if v > 0}
-            for s in world.settlements}
-        for settlement in world.settlements:
-            if not settlement.alive:
-                continue
-            deaths = settlement.winter_check(year)
-            if deaths and settlement.known:
-                result.say(0.9, f"{settlement.name} lost {deaths} over the winter."
-                                f" {settlement.population} remain.")
-            if settlement.population <= T.ABANDON_POPULATION and settlement.alive:
-                had = world.settlement_received[settlement.id]
-                settlement.abandoned_year = year
-                if settlement.known:
-                    result.frame(0.95, "abandonment", settlement.name)
-                    result.say(0.95, f"{settlement.name} was given up in year"
-                                     f" {year}.", accent=True)
-                    if had:
-                        # The whole of what the player gets for it, and it is
-                        # recorded rather than rewarded. §3.9.
-                        result.say(0.96, f"{settlement.name} received"
-                                         f" {_goods_phrase(had)} in the winter it"
-                                         f" ended.")
-                        world.kindnesses.append((year, settlement.name, dict(had)))
 
-    # --- what the post is for: letters, standing, and the news they carry ---
+def _count_the_winter(context):
+    """The end of winter, where what was not shipped in autumn is counted."""
+    world, result, year = context.world, context.result, context.year
+    world.settlement_received = {
+        s.id: {g: v for g, v in s.received.items() if v > 0}
+        for s in world.settlements}
+
+    for settlement in world.settlements:
+        if not settlement.alive:
+            continue
+        deaths = settlement.winter_check(year)
+        if deaths and settlement.known:
+            result.say(0.9, f"{settlement.name} lost {deaths} over the winter."
+                            f" {settlement.population} remain.")
+        if settlement.population > T.ABANDON_POPULATION or not settlement.alive:
+            continue
+
+        had = world.settlement_received[settlement.id]
+        settlement.abandoned_year = year
+        if not settlement.known:
+            continue
+        result.frame(0.95, "abandonment", settlement.name)
+        result.say(0.95, f"{settlement.name} was given up in year {year}.",
+                   accent=True)
+        if had:
+            # The whole of what the player gets for it, and it is recorded
+            # rather than rewarded. §3.9.
+            result.say(0.96, f"{settlement.name} received {_goods_phrase(had)}"
+                             f" in the winter it ended.")
+            world.kindnesses.append((year, settlement.name, dict(had)))
+
+
+def _letters_and_standing(context):
+    """What the post is for: letters, standing, and the news they carry."""
+    world, result = context.world, context.result
     for leg in result.legs:
         if not (leg.arrived and leg.cargo) or leg.taken or leg.stolen:
             continue
@@ -430,54 +542,56 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
             settlement.standing = min(100.0, settlement.standing + gain)
         if leg.cargo.get("POST"):
             _news(result, world, world.settlements[leg.destination], at=leg.end)
+
     for settlement in world.settlements:
         if settlement.alive and not any(
                 leg.destination == settlement.id and leg.cargo and leg.arrived
                 for leg in result.legs):
             settlement.standing = max(0.0, settlement.standing - T.STANDING_DECAY)
 
-    # --- the people ---
+
+def _the_people(context, bands_before):
+    """Rest, home, and anything that changed for the worse."""
+    result = context.result
     ran = {leg.courier_id for leg in result.legs if leg.courier_id >= 0}
-    for runner in couriers:
+    for runner in context.couriers:
         if not runner.alive:
             continue
         if runner.id not in ran:
             runner.rested()
-        home = world.settlements[runner.home]
+        home = context.world.settlements[runner.home]
         if home.alive:
             share = min(1.0, sum(home.received.values())
                         / max(sum(home.needs().values()), 1e-6))
             if share > 0.05:
                 runner.home_served(share)
-            elif season == "WINTER":
+            elif context.season == "WINTER":
                 runner.home_neglected()
 
-    for runner in couriers:
-        if not runner.alive:
-            continue
         now, rank = _standing_of(runner)
         was, was_rank = bands_before.get(runner.id, (now, rank))
         # §3.13: exception reporting keeps anything that changed about a
         # courier, which is how somebody the player had stopped reading about
         # comes back to their attention before they are lost rather than after.
-        # Only a change for the worse, though: a courier coming back to
-        # themselves after a season off is not news, and news that repeats
-        # every season is wallpaper.
+        # Only a change for the worse: a courier coming back to themselves after
+        # a season off is not news, and news that repeats is wallpaper.
         if now != was and rank > was_rank:
             result.say(0.97, f"{runner.name} is {now}.")
 
-    if season == "SPRING":
-        _recruit(result, world, couriers, year)
 
-    # --- and then the pressures, which is where the next season's roads
-    # come from. Nothing here is random: it is arithmetic on what the player
-    # did and did not ship.
-    watched_before = {e.id: e.danger for e in world.edges}
-    pressure.apply(world, season, year)
+def _settle_the_pressures(context):
+    """Where the next season's roads come from.
+
+    Nothing here is random. It is arithmetic on what the player did and did not
+    ship, and the roads are read straight off it.
+    """
+    world, result = context.world, context.result
+    before = {e.id: e.danger for e in world.edges}
+    pressure.apply(world, context.season, context.year)
     for edge in world.known_edges():
-        before = pressure.road_band(watched_before.get(edge.id, 0.0))
+        was = pressure.road_band(before.get(edge.id, 0.0))
         now = pressure.road_band(edge.danger)
-        if now == before or edge.danger_source < 0:
+        if now == was or edge.danger_source < 0:
             continue
         source = world.settlements[edge.danger_source]
         if not source.known:
@@ -487,8 +601,6 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
         else:
             result.say(1.0, f"the {_leg_name(world, edge)} is {now}."
                             f" {_why_watched(source)}")
-
-    return result
 
 
 def _news(result, world, settlement, at):

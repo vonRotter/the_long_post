@@ -609,6 +609,11 @@ class ChartView:
                 ink.mark(surf, "strike", p, seed, r * 1.3, "correction", T.OXIDE)
                 ink.mark(surf, "strike", (p[0], p[1] + 3), seed + 1, r * 1.3,
                          "correction", T.OXIDE)
+            elif s.doomed(self._seasons_to_winter()):
+                # the way a chart marks something no longer to be relied on. Not
+                # red: red is for what has already ended. This is a settlement
+                # still alive, still receiving post, and known to be finished.
+                ink.circle(surf, p, r, "route", seed, broken=True)
             else:
                 ink.circle(surf, p, r, "route", seed)
 
@@ -643,6 +648,12 @@ class ChartView:
                          (p[0] + cos * (inner + reach), p[1] + sin * (inner + reach)),
                          "normal" if share > T.BAND_STRAINED else "faint",
                          ink.seed_of(seed, "pressure", i))
+
+    def _seasons_to_winter(self) -> int:
+        if self.game is not None:
+            return self.game.seasons_to_winter
+        index = T.SEASONS.index(self.season)
+        return (T.SEASONS.index("WINTER") - index) % len(T.SEASONS) + 1
 
     def _draw_marks(self, surf):
         """What the run has written on the chart and will not take off it.

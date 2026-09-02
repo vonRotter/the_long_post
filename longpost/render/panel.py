@@ -269,8 +269,12 @@ class Panel:
                        alpha=205)
             self._right(layer, y, f"{route.runs} runs", size=9, alpha=150)
             y += 13
+            carrying = (", ".join(g.lower() for g in route.priority)
+                        if route.priority else "whatever is wanted")
             y = self._line(layer, x + 10, y, f"{carrier.name}, {who}", size=9,
                            alpha=150)
+            y = self._line(layer, x + 10, y, f"carrying {carrying}", size=9,
+                           alpha=140)
             if route.idle:
                 y = self._line(layer, x + 10, y,
                                f"nothing sent for {words.count(route.idle, 'season')}",
@@ -370,7 +374,7 @@ class Panel:
         else:
             lines = ("click a leg · tab next · c carrier · v courier · l load",
                      "1-5 add, shift remove · x clear · s keep · d dig · b breed",
-                     "space — commit · wheel scrolls · f fit · m mute · f1-f3")
+                     "space — commit · wheel scrolls · f fit · m mute · f1-f4")
         for line in lines:
             lettering.draw(layer, line, (x, y), size=9, alpha=125)
             y += 12

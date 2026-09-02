@@ -8,6 +8,8 @@ from longpost.world import season as season_mod
 
 SEEDS = range(300)
 
+pytestmark = pytest.mark.slow
+
 
 @pytest.fixture(scope="module")
 def worlds():

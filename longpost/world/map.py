@@ -37,6 +37,7 @@ class Edge:
     danger_source: int = -1       # and whose desperation that is
     runs: int = 0                 # how heavily the post has used this leg
     losses: list = field(default_factory=list)   # (year, courier name)
+    thefts: list = field(default_factory=list)   # (year, who, where it went)
 
     @property
     def effective_terrain(self) -> str:

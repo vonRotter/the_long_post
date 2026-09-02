@@ -57,6 +57,8 @@ class Game:
         self.largest_count = 0
         self.last_run = None          # (carrier, courier, edge, cargo)
         self.summary = None
+        self.replaying = False
+        self.camera_taken = False     # until the player moves it themselves
         self.pull_back_t = 0.0
         self.resolve_t = 0.0
 
@@ -303,12 +305,18 @@ class Game:
                            f" {self._leg_words(edge)}.", self.year, self.season)
             return
         runner = self.selected_courier
+        # a load already set by hand becomes the route's instruction; otherwise
+        # the route reads the far end's need every season, as a clerk would
+        order = self.plan.for_carrier(carrier.id)
+        priority = tuple(sorted(order.loaded())) if order and order.loaded() else ()
         self.standing.set(assign.StandingOrder(
             edge_id=edge.id, carrier_id=carrier.id,
             courier_id=runner.id if runner is not None and self.pin_courier else -1,
-            started_year=self.year))
-        self.log.write(f"{carrier.name} keeps the {self._leg_words(edge)}.",
-                       self.year, self.season)
+            started_year=self.year, priority=priority))
+        carrying = (", ".join(g.lower() for g in priority) if priority
+                    else "whatever is wanted")
+        self.log.write(f"{carrier.name} keeps the {self._leg_words(edge)},"
+                       f" carrying {carrying}.", self.year, self.season)
 
     def _leg_words(self, edge) -> str:
         return (f"{self.world.settlements[edge.a].name.lower()} — "
@@ -385,6 +393,8 @@ class Game:
         self.last_resolution = self.resolution
         self.plan.clear()
         self.phase = self.RESOLVE
+        self.replaying = False
+        self.camera_taken = False
         self.resolve_t = 0.0
         self._shown_lines = 0
         self._shown_frames = set()
@@ -398,6 +408,26 @@ class Game:
         if self.resolution is not None:
             self.resolve_t = self.resolution.duration
             self.update(0.0)
+
+    def replay(self):
+        """F4. Watch the last season again.
+
+        The resolution is a record of what was already decided, so playing it
+        back changes nothing — no line is written twice and no effect is
+        applied twice. It is the visible half of the promise in §2: the same
+        seed and the same orders unfold identically, and here is the proof you
+        can watch.
+        """
+        if self.last_resolution is None or self.phase != self.PLAN:
+            return
+        self.resolution = self.last_resolution
+        self.phase = self.RESOLVE
+        self.replaying = True
+        self.resolve_t = 0.0
+        self._shown_lines = len(self.resolution.lines)   # the log already has them
+        self._shown_frames = set()
+        self.camera_taken = False
+        self.log.write("the last season again.", self.year, self.season)
 
     def skip_resolution(self):
         if self.phase == self.RESOLVE:
@@ -423,6 +453,7 @@ class Game:
             # the pen: every line of the log is a mark going onto the paper
             self.sound.scratch()
             self._shown_lines += 1
+        self._follow_the_season(share)
         for at, kind, subject in self.resolution.vignettes:
             if at <= share and (at, kind, subject) not in self._shown_frames:
                 self._shown_frames.add((at, kind, subject))
@@ -434,7 +465,31 @@ class Game:
         if self.resolve_t >= self.resolution.duration:
             self._end_resolution()
 
+    def _follow_the_season(self, share):
+        """The camera goes to the leg that matters most — and gives it up the
+        moment the player touches it.
+
+        §3.11: during resolution the camera auto-focuses on the most
+        consequential leg, but the player may override it at any moment and go
+        watch something else. The game never takes the camera away from them.
+        """
+        if self.camera_taken or self.resolution is None:
+            return
+        leg = self.resolution.consequential()
+        if leg is None or share < leg.start:
+            return
+        a = self.world.settlements[leg.origin].pos
+        b = self.world.settlements[leg.destination].pos
+        self.chart.camera.look_at(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2),
+                                  T.ZOOM_FOCUS * 0.55)
+
     def _end_resolution(self):
+        if self.replaying:
+            # nothing happened; it was already seen once
+            self.replaying = False
+            self.phase = self.PLAN
+            self.resolution = None
+            return
         self.resolution = None
         self.selected_edge = None
         self.selected_carrier = None
@@ -519,6 +574,7 @@ def main(argv=None):
                 dragging = False
             elif event.type == pygame.MOUSEMOTION and dragging:
                 game.chart.camera.pan_screen(*event.rel)
+                game.camera_taken = True
 
         game.update(dt)
         game.chart.update(dt)
@@ -559,6 +615,7 @@ def handle(event, game) -> bool:
         return False
 
     if event.type == pygame.MOUSEWHEEL:
+        game.camera_taken = True
         if game.panel.rect.collidepoint(pygame.mouse.get_pos()):
             game.panel.scroll_by(-event.y * 2)      # the panel is a document too
         else:
@@ -593,12 +650,17 @@ def handle(event, game) -> bool:
     # the camera answers in every phase; the game never takes it away
     if event.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
         camera.zoom_by(T.ZOOM_STEP, camera.rect.center)
+        game.camera_taken = True
     elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
         camera.zoom_by(1 / T.ZOOM_STEP, camera.rect.center)
+        game.camera_taken = True
     elif event.key == pygame.K_f:
         camera.look_at((T.WORLD_W / 2, T.WORLD_H / 2), T.ZOOM_CHART)
+        game.camera_taken = True
     elif event.key == pygame.K_F3:
         game.reseed()
+    elif event.key == pygame.K_F4:
+        game.replay()
     elif event.key == pygame.K_m:
         game.sound.toggle_mute()
     elif event.key in (pygame.K_F1, pygame.K_F2):

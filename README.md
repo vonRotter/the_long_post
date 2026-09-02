@@ -31,7 +31,7 @@ pytest tests/
 | `esc`, `q` | leave |
 
 Debug: `F1` edge terrain, travel days, season profile and danger · `F2`
-desperation and standing · `F3` reseed.
+desperation and standing · `F3` reseed · `F4` watch the last season again.
 
 ## Milestone status
 
