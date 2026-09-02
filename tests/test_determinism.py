@@ -62,9 +62,12 @@ def test_a_hazard_roll_is_the_same_in_every_process():
     assert seed_of("hazard", 3, 2, "WINTER", 11, 0, 0) == 3228847447
 
 
-def test_the_run_is_forty_turns_and_stops_there():
+def test_the_run_is_forty_turns_and_then_offers_one_more():
     game = Game(5)
     for _ in range(T.TURNS + 10):
+        if game.phase == game.LAST_RUN:
+            break
         game.run_season()
     assert game.turn == T.TURNS - 1
     assert game.year == T.START_YEAR + T.YEARS - 1
+    assert game.phase == game.LAST_RUN

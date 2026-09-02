@@ -14,10 +14,10 @@ from . import tuning as T
 from .data.carriers import CARRIERS, STARTING_FLEET
 from .debug.overlay import Overlay
 from .data import names as name_data
-from .post import assign, resolve as resolve_mod
+from .post import assign, resolve as resolve_mod, summary as summary_mod
 from .post.carrier import Carrier
 from .post.courier import Courier
-from .render import ink, words
+from .render import ending, ink, words
 from .render.chart_view import ChartView
 from .render.log import Log
 from .render.panel import Panel
@@ -27,7 +27,8 @@ from .world.settlement import GOODS
 
 
 class Game:
-    PLAN, RESOLVE = "PLAN", "RESOLVE"
+    PLAN, RESOLVE, LAST_RUN, PULL_BACK, SUMMARY = (
+        "PLAN", "RESOLVE", "LAST RUN", "PULL BACK", "SUMMARY")
 
     def __init__(self, seed: int):
         self.seed = seed
@@ -49,6 +50,12 @@ class Game:
         self.resolution = None
         self.last_resolution = None   # kept for F4, and for reading afterwards
         self.plan_at_commit = {}
+        self.ending_reason = ""
+        self.largest_year = T.START_YEAR
+        self.largest_count = 0
+        self.last_run = None          # (carrier, courier, edge, cargo)
+        self.summary = None
+        self.pull_back_t = 0.0
         self.resolve_t = 0.0
 
         self.selected_edge = None
@@ -119,7 +126,62 @@ class Game:
 
     @property
     def over(self) -> bool:
-        return self.turn + 1 >= T.TURNS
+        """The run ends when the network cannot hold itself together, or when
+        ten years are up. In a well-played run it is the latter, and the
+        population is still falling."""
+        return self.turn + 1 >= T.TURNS or self.connected < T.CONNECTED_MINIMUM
+
+    @property
+    def connected(self) -> int:
+        groups = self.world.components(season=self.season, known_only=True)
+        return max((len(group) for group in groups), default=0)
+
+    def _note_ending(self):
+        if self.connected < T.CONNECTED_MINIMUM:
+            self.ending_reason = ("the network could no longer hold itself"
+                                  " together")
+        else:
+            self.ending_reason = "ten years"
+
+    def begin_last_run(self):
+        """One more run. What do you carry?
+
+        No score is attached to it and nothing is calculated from it. The
+        player loads one carrier, on one leg, and watches it at FOCUS.
+        """
+        self._note_ending()
+        self.phase = self.LAST_RUN
+        self.plan.clear()
+        self.standing.routes.clear()
+        self.selected_edge = None
+        self.selected_carrier = None
+        candidates = [e for e in self.world.known_edges() if e.is_usable(self.season)]
+        if candidates:
+            self.select_edge(candidates[0])
+        self.log.write("one more run. what do you carry?", self.year, self.season)
+
+    def commit_last_run(self):
+        """The last assignment. It plays at FOCUS and the chart is all there is."""
+        if self.phase != self.LAST_RUN:
+            return
+        order = self.order_for_selection()
+        if order is None or self.selected_edge is None:
+            return
+        edge = self.selected_edge
+        a = self.world.settlements[edge.a].pos
+        b = self.world.settlements[edge.b].pos
+        self.chart.camera.look_at(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2), T.ZOOM_FOCUS)
+        self.resolution = resolve_mod.resolve(self.world, self.fleet, self.couriers,
+                                              self.plan, self.turn, self.year,
+                                              self.season)
+        self.resolution.duration = T.LAST_RUN_SECONDS
+        self.last_resolution = self.resolution
+        self.plan.clear()
+        self.phase = self.RESOLVE
+        self.resolve_t = 0.0
+        self._shown_lines = len(self.resolution.lines)   # no log line for this one
+        self.last_run = True
+        self.chart.routes.dirty = True
 
     # --- planning ---
     def select_edge(self, edge):
@@ -335,6 +397,12 @@ class Game:
             self.resolve_t = self.resolution.duration
 
     def update(self, dt):
+        if self.phase == self.PULL_BACK:
+            self.pull_back_t += dt
+            if self.pull_back_t >= T.PULL_BACK_SECONDS:
+                self.phase = self.SUMMARY
+                self.summary = summary_mod.build(self)
+            return
         if self.phase != self.RESOLVE:
             return
         self.resolve_t += dt
@@ -349,14 +417,23 @@ class Game:
             self._end_resolution()
 
     def _end_resolution(self):
-        self.phase = self.PLAN
         self.resolution = None
         self.selected_edge = None
         self.selected_carrier = None
         self.selected_courier = None
         self.chart.routes.dirty = True
+        self.chart.places.dirty = True
+
+        if self.last_run:
+            # the view pulls back to the whole chart as it now stands, and holds
+            self.phase = self.PULL_BACK
+            self.pull_back_t = 0.0
+            self.chart.camera.look_at((T.WORLD_W / 2, T.WORLD_H / 2), T.ZOOM_CHART)
+            return
+
+        self.phase = self.PLAN
         if self.over:
-            self.log.write("ten years. the post stops here.", self.year, self.season)
+            self.begin_last_run()
             return
         self.turn += 1
         self.chart.set_season(self.season)
@@ -367,6 +444,9 @@ class Game:
     def _report_season(self):
         world = self.world
         season = self.season
+        standing = len([s for s in world.known_settlements() if s.alive])
+        if standing > self.largest_count:
+            self.largest_count, self.largest_year = standing, self.year
         usable = [e for e in world.known_edges() if e.is_usable(season)]
         ice = [e for e in usable if e.terrain == "ICE"]
         hard = [e for e in usable if e.availability(season) == T.HARD]
@@ -418,10 +498,18 @@ def main(argv=None):
         game.chart.update(dt)
 
         screen.blit(paper, (0, 0))
-        game.chart.draw(screen)
-        game.panel.draw(screen, game)
-        game.log.draw(screen)
-        game.overlay.draw(screen, game)
+        if game.phase == game.SUMMARY:
+            ending.draw_summary(screen, game)
+        else:
+            game.chart.draw(screen)
+            if game.phase in (game.LAST_RUN, game.PULL_BACK) or game.last_run:
+                # for this one run the chart is all there is
+                if game.phase == game.LAST_RUN:
+                    ending.draw_prompt(screen, game)
+            else:
+                game.panel.draw(screen, game)
+                game.log.draw(screen)
+            game.overlay.draw(screen, game)
         # the sheet's grain lies on top of the ink, not under it
         screen.blit(grain, (0, 0), special_flags=pygame.BLEND_MULT)
         pygame.display.flip()
@@ -484,9 +572,18 @@ def handle(event, game) -> bool:
     elif event.key in (pygame.K_F1, pygame.K_F2):
         game.overlay.toggle(event.key)
     elif game.phase == game.RESOLVE:
-        game.skip_resolution()
+        if not game.last_run:
+            game.skip_resolution()      # the last run is not skippable
+    elif game.phase == game.PULL_BACK:
+        game.phase = game.SUMMARY
+        game.summary = summary_mod.build(game)
+    elif game.phase == game.SUMMARY:
+        return False
     elif event.key == pygame.K_SPACE:
-        game.commit()
+        if game.phase == game.LAST_RUN:
+            game.commit_last_run()
+        else:
+            game.commit()
     elif event.key == pygame.K_c:
         game.cycle_carrier(-1 if event.mod & pygame.KMOD_SHIFT else 1)
     elif event.key == pygame.K_v:

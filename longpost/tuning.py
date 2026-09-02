@@ -281,6 +281,18 @@ INK_SLICE_MS = 7.0
 # re-inked, and re-inked once the camera settles.
 ZOOM_SETTLE = 0.004
 
+# --- the ending ------------------------------------------------------------
+
+# The run ends when the network can no longer hold itself together, or when
+# ten years are up — and in a well-played run it is the latter, with the
+# population still falling.
+CONNECTED_MINIMUM = 3             # settlements still reachable from each other
+
+# The last run has its own treatment: one carrier, one leg, one cargo, played
+# at FOCUS and uninterrupted, and then the view pulls back to the whole chart.
+LAST_RUN_SECONDS = 9.0
+PULL_BACK_SECONDS = 4.0
+
 # --- motion ---------------------------------------------------------------
 
 REDRAW_SECONDS = 1.0              # the season change re-inks the chart

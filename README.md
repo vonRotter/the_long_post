@@ -36,7 +36,7 @@ desperation and standing · `F3` reseed.
 
 Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
 **M1 — Shipping**, **M2 — the desperation gate**, **M3 — Couriers and loss**,
-**M4 — the long game**, and **M5 — delegation and scale.**
+**M4 — the long game**, **M5 — delegation and scale**, and **M6 — the ending.**
 
 * `render/ink.py` — the five primitives (wobbled line, curve, hatch, stipple,
   mark), the generated chart paper, and the one ruled line the game allows.
@@ -69,6 +69,15 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
   desperation, the desperation on the route, and how little the destination
   needs the load — every one of which is on the panel before the season is
   committed, and never fires on fewer than two of them.
+* **The ending.** The run ends when the network can no longer hold itself
+  together — fewer than three settlements still reachable from each other — or
+  when ten years are up, and in a well-played run it is the latter with the
+  population still falling. Then the game does not cut away: it offers one more
+  run, one carrier, one leg, and a cargo of the player's choosing, played at
+  FOCUS with the chart the only thing on screen and no way to hurry it. When it
+  arrives the view pulls back to the whole chart as it now stands, and holds
+  there. The summary is reached by a keypress, and its headline figure is not a
+  score: it is the number of years the post ran.
 * **Delegation.** A route can be kept: a carrier, a leg, and either a named
   courier or whoever is fit and standing there. It runs itself every season the
   route is open, and it reports by exception — what went wrong, what went
@@ -95,7 +104,7 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
 * `render/panel.py`, `render/log.py` — numbers in the panel, never on the
   chart; plain declarative lines in the log.
 
-Not built yet: the vignettes and the ending. Those are M6, and A4–A5.
+Not built yet: the six vignettes (A4) and the sound (§9).
 
 ### Tests
 
@@ -113,7 +122,9 @@ is moved and never created, the hold is the limit, a closed leg is refused) ·
 `tests/test_desperation.py` (monotonic in every input, a calm map has no
 dangerous road, serving a settlement calms the roads beside it, and no load is
 ever taken on a leg the panel called safe) ·
-`tests/test_delegation.py` (a kept route runs itself, never overrules an order
+`tests/test_ending.py` (ten years ends it, so does a network that cannot hold
+itself together, the last run is not skippable, and the summary is a record
+rather than a score) · `tests/test_delegation.py` (a kept route runs itself, never overrules an order
 the player gave, reports a stall once and then stops repeating it, and brings a
 courier who is wearing down back to the player's attention) ·
 `tests/test_kindness.py` (120 headless runs: a player who always serves the
@@ -190,6 +201,12 @@ problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
 * **A courier is lost by a roll the panel showed.** Condition and the road's
   danger are both bands on the panel before the season is committed, and they
   are the only two things the roll reads.
+* **Ten years is right** (§6.3, settled at M6). Measured over six seeds at
+  eight, ten and twelve: eight leaves the north down about half with two
+  settlements gone, which shows the decline but not the thinning; twelve costs
+  another two years to watch what year ten has already decided, and ends early
+  more often. Ten is where the settlements actually go while the ending is
+  still in doubt.
 * **No settlements are ever founded** (§6.4, settled at M4). The map only ever
   loses places; the chart grows because the post finds what was already there.
 * **Doom is arithmetic, not pessimism** (§3.9). A settlement is doomed when what
@@ -208,7 +225,7 @@ problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
 
 ## Open questions, at the milestone where they bite
 
-* Is ten years right (§6.3, test eight and twelve at M6).
+*(none open)*
 
 ## Frame budget
 
