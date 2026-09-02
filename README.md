@@ -27,6 +27,7 @@ pytest tests/
 | drag | pan |
 | right click | look at a settlement or a leg |
 | `f` | fit the whole chart |
+| `m` | mute |
 | `esc`, `q` | leave |
 
 Debug: `F1` edge terrain, travel days, season profile and danger · `F2`
@@ -69,6 +70,13 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
   desperation, the desperation on the route, and how little the destination
   needs the load — every one of which is on the panel before the season is
   committed, and never fires on fewer than two of them.
+* **Sound**, procedural and quiet: a wind bed that thickens through winter, a
+  pen scratch for every mark that goes onto the paper during resolution, a low
+  tone on a shortfall, a heavier one on a loss, and one warm note on an arrival
+  in need. There are no sound files in this project and there will not be —
+  every sound is a few seconds of numpy made once from the world's seed. It
+  fails silent: on a machine with no audio the game runs exactly as before.
+  `m` mutes it.
 * **The vignettes.** Six, built from the same five primitives and reused all
   run: avalanche, storm at sea, ice failure, bandits, arrival, abandonment.
   Each is a slip of paper pasted onto the chart — the chart stays visible
@@ -112,8 +120,7 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
 * `render/panel.py`, `render/log.py` — numbers in the panel, never on the
   chart; plain declarative lines in the log.
 
-Not built yet: the sound (§9), which is the only part of either document
-still outstanding.
+Everything in both documents is built. What remains is playing it.
 
 ### Tests
 
@@ -131,7 +138,10 @@ is moved and never created, the hold is the limit, a closed leg is refused) ·
 `tests/test_desperation.py` (monotonic in every input, a calm map has no
 dangerous road, serving a settlement calms the roads beside it, and no load is
 ever taken on a leg the panel called safe) ·
-`tests/test_vignettes.py` (six and only six, two seconds and no longer,
+`tests/test_sound.py` (no sound files anywhere, the wind loops without a click,
+the pen is a narrow band with a fast attack, the tones sit where they are
+meant to, silence is a valid state, and a muted run and a loud one produce the
+identical simulation) · `tests/test_vignettes.py` (six and only six, two seconds and no longer,
 dismissible immediately, one at a time, never any text inside one, and ink that
 never fills the frame) · `tests/test_ending.py` (ten years ends it, so does a network that cannot hold
 itself together, the last run is not skippable, and the summary is a record

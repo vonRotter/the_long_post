@@ -19,6 +19,7 @@ from .post.carrier import Carrier
 from .post.courier import Courier
 from .render import ending, ink, words
 from .render.vignette import Vignettes
+from .sound import Sound
 from .render.chart_view import ChartView
 from .render.log import Log
 from .render.panel import Panel
@@ -70,6 +71,8 @@ class Game:
         self.log = Log(T.LOG_RECT)
         self.overlay = Overlay()
         self.vignettes = Vignettes()
+        self.sound = Sound(seed=seed)
+        self.sound.set_season(self.season)
         self.chart.season = self.season
         self.chart.game = self
 
@@ -417,11 +420,17 @@ class Game:
         while self._shown_lines < len(lines):
             text, accent = lines[self._shown_lines]
             self.log.write(text, self.year, self.season, accent=accent)
+            # the pen: every line of the log is a mark going onto the paper
+            self.sound.scratch()
             self._shown_lines += 1
         for at, kind, subject in self.resolution.vignettes:
             if at <= share and (at, kind, subject) not in self._shown_frames:
                 self._shown_frames.add((at, kind, subject))
                 self.vignettes.show(kind, self.world.seed, subject)
+                if kind == "arrival":
+                    self.sound.arrival_tone()
+                elif kind in ("avalanche", "storm", "ice"):
+                    self.sound.loss_tone()
         if self.resolve_t >= self.resolution.duration:
             self._end_resolution()
 
@@ -446,6 +455,7 @@ class Game:
             return
         self.turn += 1
         self.chart.set_season(self.season)
+        self.sound.set_season(self.season)
         if self.season == "SPRING":
             self._grown_foals()
         self._report_season()
@@ -453,6 +463,10 @@ class Game:
     def _report_season(self):
         world = self.world
         season = self.season
+        if any(s.doomed(self.seasons_to_winter) or s.projected_deaths(
+                self.seasons_to_winter) for s in world.known_settlements()
+                if s.alive):
+            self.sound.shortfall_tone()
         standing = len([s for s in world.known_settlements() if s.alive])
         if standing > self.largest_count:
             self.largest_count, self.largest_year = standing, self.year
@@ -480,6 +494,9 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     seed = int(argv[0]) if argv else 1
 
+    # asked for before pygame.init, or the mixer takes its own defaults and
+    # the buffer is large enough to put the pen a beat behind the mark
+    pygame.mixer.pre_init(frequency=44100, size=-16, channels=1, buffer=512)
     pygame.init()
     pygame.display.set_caption(T.TITLE)
     screen = pygame.display.set_mode((T.WINDOW_W, T.WINDOW_H))
@@ -526,6 +543,7 @@ def main(argv=None):
         screen.blit(grain, (0, 0), special_flags=pygame.BLEND_MULT)
         pygame.display.flip()
 
+    game.sound.stop()
     pygame.quit()
     return 0
 
@@ -581,6 +599,8 @@ def handle(event, game) -> bool:
         camera.look_at((T.WORLD_W / 2, T.WORLD_H / 2), T.ZOOM_CHART)
     elif event.key == pygame.K_F3:
         game.reseed()
+    elif event.key == pygame.K_m:
+        game.sound.toggle_mute()
     elif event.key in (pygame.K_F1, pygame.K_F2):
         game.overlay.toggle(event.key)
     elif game.phase == game.RESOLVE:

@@ -309,6 +309,20 @@ VIGNETTE_ARRIVAL_NEED = 0.35      # the share of a year's need a load must close
 REDRAW_SECONDS = 1.0              # the season change re-inks the chart
 RESOLVE_SECONDS = 6.0
 
+# --- sound ------------------------------------------------------------------
+
+# Procedural, and quiet. The pen scratch is the one that matters: it says that
+# everything on screen is being written down. Everything else sits under it.
+SOUND_CHANNELS = 12
+SOUND_WIND = 0.16
+SOUND_SCRATCH = 0.22
+SOUND_SHORTFALL = 0.20
+SOUND_LOSS = 0.26
+SOUND_ARRIVAL = 0.18
+
+# The bed thickens through winter and thins again by summer.
+SOUND_SEASON_WIND = {"AUTUMN": 0.55, "WINTER": 1.0, "SPRING": 0.7, "SUMMER": 0.35}
+
 # --- log ------------------------------------------------------------------
 
 LOG_LINES_KEPT = 400

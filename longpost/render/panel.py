@@ -370,7 +370,7 @@ class Panel:
         else:
             lines = ("click a leg · tab next · c carrier · v courier · l load",
                      "1-5 add, shift remove · x clear · s keep · d dig · b breed",
-                     "space — commit the season · wheel scrolls · f fit · f1-f3")
+                     "space — commit · wheel scrolls · f fit · m mute · f1-f3")
         for line in lines:
             lettering.draw(layer, line, (x, y), size=9, alpha=125)
             y += 12
