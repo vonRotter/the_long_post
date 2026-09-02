@@ -62,12 +62,18 @@ def test_a_hazard_roll_is_the_same_in_every_process():
     assert seed_of("hazard", 3, 2, "WINTER", 11, 0, 0) == 3228847447
 
 
-def test_the_run_is_forty_turns_and_then_offers_one_more():
-    game = Game(5)
-    for _ in range(T.TURNS + 10):
-        if game.phase == game.LAST_RUN:
-            break
-        game.run_season()
-    assert game.turn == T.TURNS - 1
-    assert game.year == T.START_YEAR + T.YEARS - 1
-    assert game.phase == game.LAST_RUN
+def test_a_run_lasts_ten_years_unless_the_network_gives_out_first():
+    """Both endings are real endings, and both offer the last run."""
+    for seed in (3, 5, 9):
+        game = Game(seed)
+        for _ in range(T.TURNS + 10):
+            if game.phase == game.LAST_RUN:
+                break
+            game.run_season()
+        assert game.phase == game.LAST_RUN, seed
+        if game.ending_reason == "ten years":
+            assert game.turn == T.TURNS - 1
+            assert game.year == T.START_YEAR + T.YEARS - 1
+        else:
+            assert game.connected < T.CONNECTED_MINIMUM
+            assert game.turn < T.TURNS - 1
