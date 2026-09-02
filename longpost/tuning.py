@@ -293,6 +293,17 @@ CONNECTED_MINIMUM = 3             # settlements still reachable from each other
 LAST_RUN_SECONDS = 9.0
 PULL_BACK_SECONDS = 4.0
 
+# --- vignettes -------------------------------------------------------------
+
+# A glance, not an elegy. Two seconds and dismissible immediately; the arrival
+# is allowed a little longer because it is the counterweight and the only one
+# that is not a loss. If a vignette feels like the game asking for a reaction,
+# it is too long.
+VIGNETTE_SECONDS = 2.0
+VIGNETTE_ARRIVAL_SECONDS = 2.4
+VIGNETTE_SIZE = (520, 300)
+VIGNETTE_ARRIVAL_NEED = 0.35      # the share of a year's need a load must close
+
 # --- motion ---------------------------------------------------------------
 
 REDRAW_SECONDS = 1.0              # the season change re-inks the chart

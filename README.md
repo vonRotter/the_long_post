@@ -69,6 +69,14 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
   desperation, the desperation on the route, and how little the destination
   needs the load — every one of which is on the panel before the season is
   committed, and never fires on fewer than two of them.
+* **The vignettes.** Six, built from the same five primitives and reused all
+  run: avalanche, storm at sea, ice failure, bandits, arrival, abandonment.
+  Each is a slip of paper pasted onto the chart — the chart stays visible
+  around it, nothing darkens, nothing fades, no text ever appears inside one,
+  and a loss holds for two seconds and is dismissible on any key. The arrival
+  is the counterweight and is tied to the pressure model rather than to the
+  size of the load: it is framed when the place needed it. A game that frames
+  only its catastrophes teaches the player that success is invisible.
 * **The ending.** The run ends when the network can no longer hold itself
   together — fewer than three settlements still reachable from each other — or
   when ten years are up, and in a well-played run it is the latter with the
@@ -104,7 +112,8 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
 * `render/panel.py`, `render/log.py` — numbers in the panel, never on the
   chart; plain declarative lines in the log.
 
-Not built yet: the six vignettes (A4) and the sound (§9).
+Not built yet: the sound (§9), which is the only part of either document
+still outstanding.
 
 ### Tests
 
@@ -122,7 +131,9 @@ is moved and never created, the hold is the limit, a closed leg is refused) ·
 `tests/test_desperation.py` (monotonic in every input, a calm map has no
 dangerous road, serving a settlement calms the roads beside it, and no load is
 ever taken on a leg the panel called safe) ·
-`tests/test_ending.py` (ten years ends it, so does a network that cannot hold
+`tests/test_vignettes.py` (six and only six, two seconds and no longer,
+dismissible immediately, one at a time, never any text inside one, and ink that
+never fills the frame) · `tests/test_ending.py` (ten years ends it, so does a network that cannot hold
 itself together, the last run is not skippable, and the summary is a record
 rather than a score) · `tests/test_delegation.py` (a kept route runs itself, never overrules an order
 the player gave, reports a stall once and then stops repeating it, and brings a

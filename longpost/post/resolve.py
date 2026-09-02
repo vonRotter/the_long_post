@@ -42,7 +42,13 @@ class Resolution:
     season: str
     legs: list = field(default_factory=list)
     lines: list = field(default_factory=list)     # (at, text, accent, routine)
+    vignettes: list = field(default_factory=list)  # (at, kind, subject)
     duration: float = T.RESOLVE_SECONDS
+
+    def frame(self, at, kind, subject=""):
+        """A glance at something. Six kinds, and rare because they are rare
+        events — the queue shows one at most, and the world does not stop."""
+        self.vignettes.append((at, kind, subject))
 
     def say(self, at, text, accent=False, routine=False):
         self.lines.append((at, text, accent, routine))
@@ -125,6 +131,9 @@ def _lose(result, world, runner, edge, year, season, at, gone=False):
     """
     runner.lost_year = year
     runner.lost_where = _leg_name(world, edge)
+    terrain = edge.effective_terrain
+    result.frame(at, {"COAST": "storm", "ICE": "ice", "PASS": "avalanche"}.get(
+        terrain, "avalanche"), runner.name)
     week = WEEKS[ink.seed_of("week", year, season, runner.id) % len(WEEKS)]
     edge.losses.append((year, runner.name))
     verb = "did not come back from" if gone else "was lost on"
@@ -275,6 +284,7 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
             carrier.history.append((year, season, edge.id))
             edge.runs += 1
             result.legs.append(leg)
+            result.frame(leg.end, "bandits", watcher.name)
             result.say(leg.end,
                        f"{carrier.name} was stopped on the {_leg_name(world, edge)}."
                        f" {_goods_phrase(loaded)} went to {watcher.name}.", accent=True)
@@ -314,6 +324,11 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
         if loaded and destination_was:
             still = destination.projected_shortfall(2)
             closed = [g for g in destination_was if g not in still]
+            # the counterweight, and it is tied to the pressure model: an
+            # arrival is worth framing when the place needed it, not when the
+            # load happened to be large
+            if closed and destination.desperation >= T.BAND_CALM * 100:
+                result.frame(leg.end, "arrival", destination.name)
             if closed:
                 # what went unusually well is never routine, however it was ordered
                 result.say(leg.end, f"{destination.name} is no longer short of "
@@ -394,6 +409,7 @@ def resolve(world, fleet, couriers, plan, turn, year, season) -> Resolution:
                 had = world.settlement_received[settlement.id]
                 settlement.abandoned_year = year
                 if settlement.known:
+                    result.frame(0.95, "abandonment", settlement.name)
                     result.say(0.95, f"{settlement.name} was given up in year"
                                      f" {year}.", accent=True)
                     if had:

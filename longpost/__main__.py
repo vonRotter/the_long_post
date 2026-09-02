@@ -18,6 +18,7 @@ from .post import assign, resolve as resolve_mod, summary as summary_mod
 from .post.carrier import Carrier
 from .post.courier import Courier
 from .render import ending, ink, words
+from .render.vignette import Vignettes
 from .render.chart_view import ChartView
 from .render.log import Log
 from .render.panel import Panel
@@ -68,6 +69,7 @@ class Game:
         self.panel = Panel(T.PANEL_RECT)
         self.log = Log(T.LOG_RECT)
         self.overlay = Overlay()
+        self.vignettes = Vignettes()
         self.chart.season = self.season
         self.chart.game = self
 
@@ -180,6 +182,7 @@ class Game:
         self.phase = self.RESOLVE
         self.resolve_t = 0.0
         self._shown_lines = len(self.resolution.lines)   # no log line for this one
+        self._shown_frames = set()
         self.last_run = True
         self.chart.routes.dirty = True
 
@@ -381,6 +384,7 @@ class Game:
         self.phase = self.RESOLVE
         self.resolve_t = 0.0
         self._shown_lines = 0
+        self._shown_frames = set()
         self.chart.routes.dirty = True
 
     def run_season(self):
@@ -406,6 +410,7 @@ class Game:
         if self.phase != self.RESOLVE:
             return
         self.resolve_t += dt
+        self.vignettes.update(dt)
         share = self.resolve_t / max(self.resolution.duration, 1e-6)
         lines = self.resolution.lines_before(min(share, 1.0),
                                              exceptions_only=len(self.standing) > 0)
@@ -413,6 +418,10 @@ class Game:
             text, accent = lines[self._shown_lines]
             self.log.write(text, self.year, self.season, accent=accent)
             self._shown_lines += 1
+        for at, kind, subject in self.resolution.vignettes:
+            if at <= share and (at, kind, subject) not in self._shown_frames:
+                self._shown_frames.add((at, kind, subject))
+                self.vignettes.show(kind, self.world.seed, subject)
         if self.resolve_t >= self.resolution.duration:
             self._end_resolution()
 
@@ -510,6 +519,9 @@ def main(argv=None):
                 game.panel.draw(screen, game)
                 game.log.draw(screen)
             game.overlay.draw(screen, game)
+            # the chart is still visible behind the frame; the world does not
+            # stop for this
+            game.vignettes.draw(screen)
         # the sheet's grain lies on top of the ink, not under it
         screen.blit(grain, (0, 0), special_flags=pygame.BLEND_MULT)
         pygame.display.flip()
@@ -572,7 +584,9 @@ def handle(event, game) -> bool:
     elif event.key in (pygame.K_F1, pygame.K_F2):
         game.overlay.toggle(event.key)
     elif game.phase == game.RESOLVE:
-        if not game.last_run:
+        if game.vignettes.current is not None:
+            game.vignettes.dismiss()    # any key, and immediately
+        elif not game.last_run:
             game.skip_resolution()      # the last run is not skippable
     elif game.phase == game.PULL_BACK:
         game.phase = game.SUMMARY
