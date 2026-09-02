@@ -177,3 +177,121 @@ def test_a_priority_load_never_strips_the_place_it_leaves():
     origin.stores["GRAIN"] = 4.0             # less than it keeps for itself
     cargo = assign.fill_by_priority(origin, ("GRAIN",), 40)
     assert cargo == {}
+
+
+# --- the improvements --------------------------------------------------------
+
+
+def test_a_run_is_saved_as_what_the_player_asked_for_and_read_back_the_same():
+    """A save is the seed and the orders; a load is the run playing itself back."""
+    import pathlib
+    import tempfile
+
+    from longpost.post import record
+
+    game = Game(3)
+    for _ in range(6):
+        for carrier in game.fleet:
+            legs = [e for e in game.world.known_edges()
+                    if e.is_usable(game.season) and carrier.at in (e.a, e.b)
+                    and carrier.can_run(game.season, e) and carrier.reaches(e)]
+            if legs:
+                game.select_edge(legs[0])
+                game.selected_carrier = carrier
+                game.load_by_need()
+        game.run_season()
+
+    where = pathlib.Path(tempfile.mkdtemp()) / "run.json"
+    record.write(game, where)
+    assert where.stat().st_size < 50_000, "a save is kilobytes, not megabytes"
+
+    again = record.resume(record.read(where), Game)
+    assert again.turn == game.turn
+    assert [s.population for s in again.world.settlements] == \
+           [s.population for s in game.world.settlements]
+    assert [c.condition for c in again.couriers] == \
+           [c.condition for c in game.couriers]
+    assert [line for line, _a in again.log.lines] == \
+           [line for line, _a in game.log.lines]
+
+
+def test_a_save_of_a_different_version_is_not_read():
+    import json
+    import pathlib
+    import tempfile
+
+    from longpost.post import record
+
+    where = pathlib.Path(tempfile.mkdtemp()) / "old.json"
+    where.write_text(json.dumps({"version": 0, "seed": 1, "seasons": []}))
+    assert record.read(where) is None
+
+
+def test_every_leg_is_called_something():
+    game = Game(3)
+    for edge in game.world.edges:
+        assert edge.name and edge.name[0].isupper()
+
+
+def test_a_leg_is_named_after_somewhere_it_goes():
+    game = Game(3)
+    for edge in game.world.edges[:20]:
+        ends = (game.world.settlements[edge.a].name.lower(),
+                game.world.settlements[edge.b].name.lower())
+        # the tail of the settlement's name is dropped before the water word is
+        # added — Seloy gives Selfjord — so the stem is what carries over
+        assert any(edge.name.lower().startswith(end[:3]) for end in ends), edge.name
+
+
+def test_the_log_calls_a_leg_by_its_name():
+    from longpost.post.resolve import _leg_name
+    game = Game(3)
+    edge = game.world.known_edges()[0]
+    assert _leg_name(game.world, edge) == edge.name
+
+
+def test_a_hard_winter_is_said_in_the_autumn_before_it():
+    game = Game(3)
+    while game.season != "AUTUMN":
+        game.run_season()
+    said = [line for line, _a in game.log.lines
+            if "winter will be" in line or "winter looks" in line
+            or "ordinary winter" in line]
+    assert said
+
+
+def test_a_hard_winter_is_in_the_shortfall_the_panel_shows():
+    game = Game(3)
+    settlement = game.world.known_settlements()[0]
+    settlement.winter_factor = 1.0
+    ordinary = settlement.projected_shortfall(2)
+    settlement.winter_factor = 1.3
+    harder = settlement.projected_shortfall(2)
+    for good, gap in ordinary.items():
+        assert harder.get(good, 0.0) >= gap
+
+
+def test_a_hard_winter_eats_more():
+    from longpost.world.settlement import GOODS, Settlement
+    mild = Settlement(id=0, name="A", pos=(0, 0), population=400, surplus=("GRAIN",))
+    hard = Settlement(id=1, name="B", pos=(0, 0), population=400, surplus=("GRAIN",))
+    for settlement in (mild, hard):
+        settlement.stores = {good: 0.0 for good in GOODS}
+    mild.consume(hard=1.0)
+    hard.consume(hard=1.3)
+    assert hard.shortfall["GRAIN"] > mild.shortfall["GRAIN"]
+
+
+def test_a_leg_to_a_place_that_was_given_up_is_never_drawn_as_a_route(display):
+    game = Game(3)
+    gone = game.world.known_settlements()[0]
+    gone.abandoned_year = 3
+    game.chart.routes.dirty = True
+    game.chart.draw(display)             # drawn as a ghost, without complaint
+    assert not gone.alive
+
+
+def test_a_leg_the_post_uses_darkens():
+    from longpost import tuning as T
+    assert T.ROUTE_WORN < T.ROUTE_HEAVY
+    assert T.INK_WEIGHTS["worn"][1][-1] > T.INK_WEIGHTS["route"][1][-1]

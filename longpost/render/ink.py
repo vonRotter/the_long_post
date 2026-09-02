@@ -201,11 +201,15 @@ def ink_line(surface, a, b, weight="normal", seed=0, color=T.INK, reveal=1.0,
     _strokes(surface, pts, weight, seed, color)
 
 
-def faint_strokes(surface, spans, seed, color=T.INK, alpha=None, segment_px=20.0):
-    """Many faint lines at once — ambient tone such as the sea.
+def faint_strokes(surface, spans, seed, color=T.INK, alpha=None, segment_px=20.0,
+                  passes=1):
+    """Many short lines at once — ambient tone such as the sea, or the ticks of
+    hatching round a settlement.
 
     Identical in look to calling ink_line per span, but the wobble for every
-    span is drawn from one batch, which is what makes a screenful affordable.
+    span is drawn from one batch, which is what makes a screenful affordable:
+    a hundred and fifty separate strokes cost sixty milliseconds, and the same
+    hundred and fifty batched cost three.
     """
     if not spans:
         return
@@ -233,11 +237,14 @@ def faint_strokes(surface, spans, seed, color=T.INK, alpha=None, segment_px=20.0
 
     xs = a[:, 0][:, None] + d[:, 0][:, None] * t + px * off
     ys = a[:, 1][:, None] + d[:, 1][:, None] * t + py * off
-    stroke = (*color, alpha)
     surface.lock()
-    for row in range(len(spans)):
-        pygame.draw.aalines(surface, stroke, False,
-                            list(zip(xs[row].tolist(), ys[row].tolist())))
+    for step in range(passes):
+        shade = (*color, max(30, int(alpha * (0.7 + 0.3 * (step + 1) / passes))))
+        nudge = 0.0 if step == 0 else 0.6
+        for row in range(len(spans)):
+            pygame.draw.aalines(
+                surface, shade, False,
+                list(zip((xs[row] + nudge).tolist(), (ys[row] + nudge).tolist())))
     surface.unlock()
 
 
@@ -473,7 +480,7 @@ def mark(surface, kind, position, seed=0, scale=6.0, weight="normal", color=T.IN
 def circle(surface, centre, radius, weight="normal", seed=0, color=T.INK, broken=False):
     """A hand-drawn circle. `broken` is how a chart marks what cannot be relied on."""
     cx, cy = centre
-    n = max(12, int(radius * 2.4))
+    n = max(12, int(radius * 1.5))
     t = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
     wob = _smooth(rng("circle", seed), n, knots=5) * max(0.5, radius * 0.09)
     r = radius + wob

@@ -40,6 +40,29 @@ def settlement_names(gen, count):
     return names
 
 
+# What a leg is called. A chart names its waters and its passes, and a courier
+# who has run the Nordfjord eleven times has run somewhere, not a pair of
+# endpoints — which is the whole of why the histories are worth reading.
+LEG_WORDS = {
+    "COAST": ("fjord", "sundet", "leia", "vika", "havet"),
+    "ICE": ("isen", "rennet", "sundet", "flaket"),
+    "PASS": ("skardet", "passet", "eggen", "hamrane"),
+    "INLAND": ("dalen", "veien", "moen", "lia", "skogen"),
+    "TUNNEL": ("tunnelen", "gjennomfarten"),
+}
+
+
+def leg_name(gen, terrain, a, b):
+    """A name for the leg between two settlements, out of one of them."""
+    stem = a if gen.random() < 0.5 else b
+    for tail in sorted(SETTLEMENT_TAILS, key=len, reverse=True):
+        if stem.lower().endswith(tail) and len(stem) > len(tail) + 2:
+            stem = stem[: -len(tail)]
+            break
+    words = LEG_WORDS.get(terrain, LEG_WORDS["INLAND"])
+    return stem + words[gen.integers(len(words))]
+
+
 def person_name(gen):
     return (f"{GIVEN_NAMES[gen.integers(len(GIVEN_NAMES))]} "
             f"{PATRONYMS[gen.integers(len(PATRONYMS))]}")

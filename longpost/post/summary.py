@@ -44,7 +44,7 @@ def build(game) -> Summary:
                          key=lambda item: -item[1]),
         lost=sorted(((s.name, s.abandoned_year) for s in world.settlements
                      if not s.alive and s.known), key=lambda item: item[1]),
-        tunnels=[f"{world.settlements[e.a].name.lower()} — "
+        tunnels=[e.name or f"{world.settlements[e.a].name.lower()} — "
                  f"{world.settlements[e.b].name.lower()}"
                  for e in world.edges if e.tunnel_built],
         loads=sum(c.delivered for c in game.fleet),

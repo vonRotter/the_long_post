@@ -147,8 +147,11 @@ class Panel:
             return self._line(layer, x, y + 8, "no leg chosen", size=10, alpha=130) + 6
 
         a, b = world.settlements[edge.a], world.settlements[edge.b]
-        y = self._line(layer, x, y + 4, f"{a.name.lower()} — {b.name.lower()}",
+        y = self._line(layer, x, y + 4, edge.name or f"{a.name.lower()} —"
+                                                     f" {b.name.lower()}",
                        size=12, alpha=225)
+        y = self._line(layer, x + 10, y, f"{a.name.lower()} — {b.name.lower()}",
+                       size=9, alpha=150)
         y = self._line(layer, x + 10, y,
                        f"{edge.terrain.lower()}, {edge.days:g} days, "
                        f"{edge.availability(game.season).lower()}", size=9, alpha=140)
@@ -263,10 +266,7 @@ class Panel:
             carrier = game.fleet[route.carrier_id]
             who = ("whoever is fit" if route.courier_id < 0
                    else game.couriers[route.courier_id].name)
-            self._line(layer, x, y,
-                       f"· {game.world.settlements[edge.a].name.lower()} — "
-                       f"{game.world.settlements[edge.b].name.lower()}", size=11,
-                       alpha=205)
+            self._line(layer, x, y, f"· {edge.name or edge.id}", size=11, alpha=205)
             self._right(layer, y, f"{route.runs} runs", size=9, alpha=150)
             y += 13
             carrying = (", ".join(g.lower() for g in route.priority)
@@ -309,10 +309,8 @@ class Panel:
             if leg is not None and count > 1:
                 edge = world.edges[leg]
                 y = self._line(layer, x + 10, y,
-                               f"{world.settlements[edge.a].name.lower()} —"
-                               f" {world.settlements[edge.b].name.lower()},"
-                               f" {words.count(count, 'time')}", size=9,
-                               alpha=alpha - 55)
+                               f"{edge.name or edge.id}, {words.count(count, 'time')}",
+                               size=9, alpha=alpha - 55)
             y += 4
         return y + 4
 
@@ -321,7 +319,11 @@ class Panel:
         world = game.world
         seasons_left = game.seasons_to_winter
         y = self._heading(layer, x, y, "settlements")
-        y = self._line(layer, x, y, f"shortfall by the end of winter, in"
+        hard = game.world.winters.get(game.year, 1.0)
+        weather = ("a hard winter" if hard >= T.WINTER_HARD
+                   else "a mild winter" if hard <= T.WINTER_MILD
+                   else "an ordinary winter")
+        y = self._line(layer, x, y, f"shortfall by the end of {weather}, in"
                                     f" {words.count(seasons_left, 'season')}",
                        size=9, alpha=135)
         y += 4
@@ -374,7 +376,8 @@ class Panel:
         else:
             lines = ("click a leg · tab next · c carrier · v courier · l load",
                      "1-5 add, shift remove · x clear · s keep · d dig · b breed",
-                     "space — commit · wheel scrolls · f fit · m mute · f1-f4")
+                     "space — commit · wheel scrolls · f fit · m mute",
+                     "f5 — write the run down · f4 — the last season again")
         for line in lines:
             lettering.draw(layer, line, (x, y), size=9, alpha=125)
             y += 12

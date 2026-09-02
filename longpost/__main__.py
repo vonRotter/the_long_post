@@ -14,7 +14,7 @@ from . import tuning as T
 from .data.carriers import CARRIERS, STARTING_FLEET
 from .debug.overlay import Overlay
 from .data import names as name_data
-from .post import assign, resolve as resolve_mod, summary as summary_mod
+from .post import assign, record, resolve as resolve_mod, summary as summary_mod
 from .post.carrier import Carrier
 from .post.courier import Courier
 from .render import ending, ink, words
@@ -52,6 +52,7 @@ class Game:
         self.resolution = None
         self.last_resolution = None   # kept for F4, and for reading afterwards
         self.plan_at_commit = {}
+        self.trace = []               # every season as it was committed
         self.ending_reason = ""
         self.largest_year = T.START_YEAR
         self.largest_count = 0
@@ -319,8 +320,8 @@ class Game:
                        f" carrying {carrying}.", self.year, self.season)
 
     def _leg_words(self, edge) -> str:
-        return (f"{self.world.settlements[edge.a].name.lower()} — "
-                f"{self.world.settlements[edge.b].name.lower()} leg")
+        return edge.name or (f"{self.world.settlements[edge.a].name.lower()} — "
+                             f"{self.world.settlements[edge.b].name.lower()} leg")
 
     def toggle_digging(self):
         """Put this season's team on the excavation instead of the water."""
@@ -385,8 +386,10 @@ class Game:
                                                 self.standing, self.season, self.plan)
         for notice in notices:
             self.log.write(notice, self.year, self.season)
-        # what was actually committed, kept so the season can be read back
+        # what was actually committed, kept so the season can be read back —
+        # and written into the trace, which is the whole of a save
         self.plan_at_commit = dict(self.plan.orders)
+        record.remember(self)
         self.resolution = resolve_mod.resolve(self.world, self.fleet, self.couriers,
                                               self.plan, self.turn, self.year,
                                               self.season)
@@ -408,6 +411,11 @@ class Game:
         if self.resolution is not None:
             self.resolve_t = self.resolution.duration
             self.update(0.0)
+
+    def save(self):
+        where = record.write(self)
+        self.log.write(f"the run is written down at {where}.", self.year, self.season)
+        return where
 
     def replay(self):
         """F4. Watch the last season again.
@@ -515,9 +523,26 @@ class Game:
             self._grown_foals()
         self._report_season()
 
+    @property
+    def winter_severity(self) -> float:
+        """How hard this year's winter will be, said in the autumn before it."""
+        return self.world.winters.get(self.year, 1.0)
+
     def _report_season(self):
         world = self.world
         season = self.season
+        # the coming winter, said in the autumn before it and carried in every
+        # projected shortfall from then on
+        hard = world.winters.get(self.year, 1.0)
+        for settlement in world.settlements:
+            settlement.winter_factor = hard
+        if season == "AUTUMN":
+            if hard >= T.WINTER_HARD:
+                self.log.write("the winter will be a hard one.", self.year, season)
+            elif hard <= T.WINTER_MILD:
+                self.log.write("the winter looks mild.", self.year, season)
+            else:
+                self.log.write("an ordinary winter is coming.", self.year, season)
         if any(s.doomed(self.seasons_to_winter) or s.projected_deaths(
                 self.seasons_to_winter) for s in world.known_settlements()
                 if s.alive):
@@ -546,8 +571,10 @@ class Game:
 
 
 def main(argv=None):
+    """python -m longpost [seed] [--resume]"""
     argv = sys.argv[1:] if argv is None else argv
-    seed = int(argv[0]) if argv else 1
+    resuming = "--resume" in argv
+    seed = int(next((a for a in argv if not a.startswith("-")), 1))
 
     # asked for before pygame.init, or the mixer takes its own defaults and
     # the buffer is large enough to put the pen a beat behind the mark
@@ -557,7 +584,15 @@ def main(argv=None):
     screen = pygame.display.set_mode((T.WINDOW_W, T.WINDOW_H))
     clock = pygame.time.Clock()
 
-    game = Game(seed)
+    game = None
+    if resuming:
+        saved = record.read(record.path_for(seed))
+        if saved is not None:
+            game = record.resume(saved, Game)
+            game.log.write(f"the run was taken up again at turn {game.turn + 1}.",
+                           game.year, game.season)
+    if game is None:
+        game = Game(seed)
     paper = ink.make_paper((T.WINDOW_W, T.WINDOW_H), seed)
     grain = ink.make_grain((T.WINDOW_W, T.WINDOW_H), seed)
 
@@ -661,6 +696,8 @@ def handle(event, game) -> bool:
         game.reseed()
     elif event.key == pygame.K_F4:
         game.replay()
+    elif event.key == pygame.K_F5:
+        game.save()
     elif event.key == pygame.K_m:
         game.sound.toggle_mute()
     elif event.key in (pygame.K_F1, pygame.K_F2):

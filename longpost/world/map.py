@@ -27,6 +27,7 @@ class Edge:
     b: int                        # settlement id
     terrain: str
     days: float
+    name: str = ""                # what the leg is called
     tunnel_site: bool = False     # a collapsed pre-collapse line, excavatable
     tunnel_built: bool = False
     tunnel_labour: float = 0.0    # seasons of digging done
@@ -83,6 +84,7 @@ class WorldMap:
     depth_lines: list     # seaward contours, the depths a chart carries
     mountains: list       # contours of the high ground
     soundings: list       # (x, y, number) — texture only, they mean nothing
+    winters: dict = field(default_factory=dict)      # year -> how hard it is
     kindnesses: list = field(default_factory=list)   # (year, name, what arrived)
     settlement_received: dict = field(default_factory=dict)
 
@@ -260,6 +262,7 @@ def generate(seed: int) -> WorldMap:
         edges.append(Edge(
             id=len(edges), a=a, b=b, terrain=terrain,
             days=round(length * T.TRAVEL_DAYS_PER_UNIT, 1),
+            name=name_data.leg_name(gen, terrain, labels[a], labels[b]),
             tunnel_site=bool(gen.random() < T.TUNNEL_SITE_CHANCE and terrain != "COAST"),
         ))
 
@@ -268,6 +271,7 @@ def generate(seed: int) -> WorldMap:
         edges.append(Edge(
             id=len(edges), a=e.a, b=e.b, terrain="ICE", ice_of=e.id,
             days=round(float(dist[e.a, e.b]) * T.TRAVEL_DAYS_PER_UNIT * 0.8, 1),
+            name=name_data.leg_name(gen, "ICE", labels[e.a], labels[e.b]),
         ))
 
     eligible = [e for e in list(edges)
@@ -290,7 +294,12 @@ def generate(seed: int) -> WorldMap:
         depth = int(round((T.SEA_LEVEL - ground.height(p)) * 260)) + int(gen.integers(2, 9))
         soundings.append((p[0], p[1], max(2, depth)))
 
-    return WorldMap(seed=seed, settlements=settlements, edges=edges,
+    # every winter of the run, decided now: the player is told each one in the
+    # autumn before it, and nothing about it is a surprise
+    winters = {T.START_YEAR + i: float(gen.uniform(*T.WINTER_SEVERITY))
+               for i in range(T.YEARS + 1)}
+
+    return WorldMap(seed=seed, settlements=settlements, edges=edges, winters=winters,
                     terrain=ground, coast_paths=coast_paths,
                     coast_offsets=coast_offsets, depth_lines=depth_lines,
                     mountains=mountains, soundings=soundings)

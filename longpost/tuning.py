@@ -36,6 +36,8 @@ INK_WEIGHTS = {
     # the post's own lines: legs and settlements, re-inked oftener than the
     # coast around them, and the thing the chart is actually about
     "route":      (2, (150, 215), 0.55),
+    # a leg the post has used and used again, re-inked until the paper knows it
+    "worn":       (3, (140, 200, 240), 0.75),
     "heavy":      (3, (110, 175, 235), 0.9),
     "correction": (3, (150, 205, 250), 1.4),
 }
@@ -48,6 +50,12 @@ INK_ENDPOINT_WEIGHT = 1           # extra deposit passes at pen start and stop
 
 HATCH_SPACING_MIN = 3.0           # px between hatch lines at density 1.0
 HATCH_SPACING_MAX = 22.0          # px between hatch lines at density 0.0
+
+# How many runs it takes for a leg to look like a road the post keeps: the
+# chart darkens what the player actually uses, and by year eight the habitual
+# network is visibly worn into the paper.
+ROUTE_WORN = 5
+ROUTE_HEAVY = 14
 
 # --- camera ---------------------------------------------------------------
 
@@ -86,6 +94,13 @@ POP_LARGEST = 1600
 POP_SKEW = 2.6
 STANDING_START = 55
 STANDING_TOOK_IT_HOME = 6.0       # a settlement's regard, after a load reached it
+
+# Winters are not all the same, and the coming one is said plainly in autumn:
+# a hard winter burns more fuel and eats more grain, and the panel's projected
+# shortfall carries it, so the player is never surprised by one.
+WINTER_SEVERITY = (0.85, 1.30)    # mild to hard
+WINTER_HARD = 1.12                # above this the autumn report calls it hard
+WINTER_MILD = 0.95                # and below this, mild
 
 # --- the economy ----------------------------------------------------------
 
@@ -322,6 +337,13 @@ SOUND_ARRIVAL = 0.18
 
 # The bed thickens through winter and thins again by summer.
 SOUND_SEASON_WIND = {"AUTUMN": 0.55, "WINTER": 1.0, "SPRING": 0.7, "SUMMER": 0.35}
+
+# --- saving -----------------------------------------------------------------
+
+# A save is the seed and the orders committed against it, and a load is the run
+# playing itself back. It works because the game is deterministic; it is also
+# the thing that would catch it if that ever stopped being true.
+SAVE_DIRECTORY = "saves"
 
 # --- log ------------------------------------------------------------------
 

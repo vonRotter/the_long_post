@@ -182,10 +182,14 @@ class ChartView:
         # settlements are cheap and always finished in one — and they are kept
         # apart because the season change re-inks the legs every frame while
         # the settlements stand still.
+        # started while there is still a third of the margin left, so a drag
+        # has as many frames as possible to ink the next one before the old one
+        # stops covering the view
         self.ground = DocumentCache(size, self._ground_stages,
-                                    slice_ms=T.INK_SLICE_MS, warm_at=0.25)
+                                    slice_ms=T.INK_SLICE_MS, warm_at=0.30)
         self.routes = DocumentCache(size, self._route_stages, warm_at=0.06)
-        self.places = DocumentCache(size, self._place_stages, warm_at=0.06)
+        self.places = DocumentCache(size, self._place_stages,
+                                    slice_ms=T.INK_SLICE_MS, warm_at=0.28)
         self.dynamic = pygame.Surface(self.rect.size, pygame.SRCALPHA)
         self.season = T.SEASONS[0]
         self.previous_season = None
@@ -342,8 +346,17 @@ class ChartView:
         return [self._draw_edges]
 
     def _place_stages(self):
-        """The settlements, and the marks the run leaves on the document."""
-        return [self._draw_settlements, self._draw_marks]
+        """The settlements, and the marks the run leaves on the document.
+
+        Handed over a few settlements at a time: by year eight most of them
+        carry a ring of pressure marks, and that is more ink than one frame
+        should pay for at once.
+        """
+        known = self.world.known_settlements()
+        stages = [lambda surf, group=known[i:i + 2]: self._draw_settlements(surf, group)
+                  for i in range(0, max(len(known), 1), 2)]
+        stages.append(self._draw_marks)
+        return stages
 
     def _draw_sea(self, surf, band=0, bands=1):
         """Faint hatching, thickening as the player draws in. No filled areas.
@@ -477,6 +490,15 @@ class ChartView:
             if not (self._visible(a) or self._visible(b)):
                 continue
             seed = world_map.edge_seed(edge)
+
+            # a leg to a place that has been given up is not a leg any more. It
+            # fades to faint and stays on the chart, because the player goes on
+            # routing around a hole that used to be somewhere.
+            if not (self.world.settlements[edge.a].alive
+                    and self.world.settlements[edge.b].alive):
+                self._ghost(surf, a, b, seed)
+                continue
+
             state = edge.availability(season)
             was = edge.availability(self.previous_season) if self.previous_season else state
 
@@ -497,8 +519,9 @@ class ChartView:
             elif state == T.HARD:
                 ink.dashed_line(surf, a, b, "route", seed, reveal=reveal)
             else:
-                # a route the post uses heavily darkens, as though re-inked
-                weight = "route" if edge.runs < 6 else "heavy"
+                # a route the post uses darkens, as though re-inked many times
+                weight = ("heavy" if edge.runs >= T.ROUTE_HEAVY
+                          else "worn" if edge.runs >= T.ROUTE_WORN else "route")
                 ink.ink_line(surf, a, b, weight, seed, reveal=reveal)
 
             if edge.danger > 0.0:
@@ -526,18 +549,23 @@ class ChartView:
             middle = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
             side = 1.0 if (here[0] - middle[0]) * nx + (here[1] - middle[1]) * ny > 0 else -1.0
 
-        spacing = max(5.0, 22.0 - 16.0 * min(edge.danger, 1.0))
-        reach = 4.0 + 7.0 * min(edge.danger, 1.0)
+        # density is what carries the danger, so it has to read the same at
+        # every scale: drawn in in document pixels, it multiplies as you draw in
+        scale = float(np.clip(self.camera.zoom, 1.0, 4.0))
+        spacing = max(5.0, 22.0 - 16.0 * min(edge.danger, 1.0)) * scale
+        reach = (4.0 + 7.0 * min(edge.danger, 1.0)) * min(scale, 2.0)
         steps = max(2, int(length / spacing))
+        lean = 0.45 * side
+        spans = []
         for i in range(1, steps):
             t = i / steps
             p = (a[0] + dx * t, a[1] + dy * t)
-            lean = 0.45 * side
-            ink.ink_line(surf, p,
-                         (p[0] + (nx * side + ux * lean) * reach,
-                          p[1] + (ny * side + uy * lean) * reach),
-                         "heavy" if edge.danger > T.BAND_ROAD_HARD else "normal",
-                         ink.seed_of(seed, "danger", i))
+            spans.append((p, (p[0] + (nx * side + ux * lean) * reach,
+                              p[1] + (ny * side + uy * lean) * reach)))
+        bad = edge.danger > T.BAND_ROAD_HARD
+        ink.faint_strokes(surf, spans, ink.seed_of(seed, "danger"),
+                          alpha=210 if bad else 150, segment_px=6.0,
+                          passes=2 if bad else 1)
 
     def _draw_selection(self, surf, a, b, seed):
         """The leg the player is looking at, ticked in the margin of the line."""
@@ -594,9 +622,9 @@ class ChartView:
         ink.mark(surf, "cross", p, ink.seed_of(seed, "loss", year, index), 5.0)
         lettering.draw(surf, str(year), (p[0] + 7, p[1] - 4), size=8, alpha=120)
 
-    def _draw_settlements(self, surf):
+    def _draw_settlements(self, surf, group=None):
         zoom = self.camera.zoom
-        for s in self.world.known_settlements():
+        for s in (self.world.known_settlements() if group is None else group):
             p = self._local(s.pos)
             if not (-120 <= p[0] <= self._render_size[0] + 120
                     and -120 <= p[1] <= self._render_size[1] + 120):
@@ -639,15 +667,18 @@ class ChartView:
         strokes = int(5 + 19 * share)
         gen = ink.rng("pressure", seed)
         start = float(gen.uniform(0, math.tau))
+        inner = r * 1.12
+        reach = r * (0.28 + 0.55 * share)
+        spans = []
         for i in range(strokes):
             angle = start + math.tau * i / strokes
             cos, sin = math.cos(angle), math.sin(angle)
-            inner = r * 1.12
-            reach = r * (0.28 + 0.55 * share)
-            ink.ink_line(surf, (p[0] + cos * inner, p[1] + sin * inner),
-                         (p[0] + cos * (inner + reach), p[1] + sin * (inner + reach)),
-                         "normal" if share > T.BAND_STRAINED else "faint",
-                         ink.seed_of(seed, "pressure", i))
+            spans.append(((p[0] + cos * inner, p[1] + sin * inner),
+                          (p[0] + cos * (inner + reach), p[1] + sin * (inner + reach))))
+        heavy = share > T.BAND_STRAINED
+        ink.faint_strokes(surf, spans, ink.seed_of(seed, "pressure"),
+                          alpha=165 if heavy else 95, segment_px=6.0,
+                          passes=2 if heavy else 1)
 
     def _seasons_to_winter(self) -> int:
         if self.game is not None:
@@ -664,7 +695,7 @@ class ChartView:
         a record and not a readout.
         """
         for edge in self.world.known_edges():
-            if not edge.losses:
+            if not (edge.losses or edge.thefts):
                 continue
             a = self._local(self.world.settlements[edge.a].pos)
             b = self._local(self.world.settlements[edge.b].pos)
@@ -673,6 +704,19 @@ class ChartView:
             seed = world_map.edge_seed(edge)
             for index, (year, _name) in enumerate(edge.losses):
                 self._margin_cross(surf, a, b, year, seed, index)
+            for index, (year, _who, _where) in enumerate(edge.thefts):
+                self._margin_note(surf, a, b, year, seed, index)
+
+    def _margin_note(self, surf, a, b, year, seed, index=0):
+        """A load that went elsewhere. A circled dot, on the other side of the
+        line from the crosses, with the year beside it."""
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / length, dx / length
+        t = 0.5 + 0.12 * ((index % 3) - 1)
+        p = (a[0] + dx * t - nx * 15, a[1] + dy * t - ny * 15)
+        ink.mark(surf, "circled_dot", p, ink.seed_of(seed, "theft", year, index), 4.0)
+        lettering.draw(surf, str(year), (p[0] + 7, p[1] - 4), size=8, alpha=110)
 
     def _draw_roofs(self, surf, p, r, seed):
         """At FOCUS a circle resolves into a cluster of roofs and a jetty."""

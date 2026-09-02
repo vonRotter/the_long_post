@@ -15,7 +15,9 @@ Python 3.11+, `pygame` and `numpy` only, plus the one `.ttf` in
 `longpost/data/`. No build step.
 
 ```
-pytest tests/
+pytest              # the build: about forty seconds
+pytest -m slow      # the two design proofs: 300 worlds, 120 ten-year runs
+pytest -m ""        # everything
 ```
 
 ## Controls
@@ -28,10 +30,19 @@ pytest tests/
 | right click | look at a settlement or a leg |
 | `f` | fit the whole chart |
 | `m` | mute |
+| `s` | keep this route — it runs itself until stopped |
+| `d` | dig at a collapsed line · `b` breed, in summer |
+| `F5` / `--resume` | write the run down · take it up again |
 | `esc`, `q` | leave |
 
 Debug: `F1` edge terrain, travel days, season profile and danger · `F2`
 desperation and standing · `F3` reseed · `F4` watch the last season again.
+
+A run is written down as the seed and the orders committed against it — a few
+kilobytes — and taken up again by replaying them. `python -m longpost 3
+--resume` picks seed 3 back up where it was left. That works only because the
+game is deterministic, and it is also the thing that would catch it if it ever
+stopped being.
 
 ## Milestone status
 
@@ -70,6 +81,19 @@ Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
   desperation, the desperation on the route, and how little the destination
   needs the load — every one of which is on the panel before the season is
   committed, and never fires on fewer than two of them.
+* **The chart accumulates.** A leg the post uses darkens as it is re-inked, in
+  three weights. A leg where a courier was lost carries a cross in the margin
+  with the year; a load that went elsewhere carries a circled dot on the other
+  side of the line. A settlement that is given up is struck through in oxide
+  and its legs fade to ghosts that are never removed, so the player goes on
+  routing around a hole that used to be somewhere. Every leg is named —
+  the Nordfjord, the Kaldsundet, the Bjornleia — which is what makes a
+  courier's record worth reading: *Snorri Bakke, eight runs, the Nordflaket,
+  eight times*.
+* **No two winters are the same**, and the coming one is said in the autumn
+  before it: hard, ordinary or mild. A hard winter burns more, and the panel's
+  projected shortfall has been carrying it since the announcement, so it is
+  never a surprise — only a thing the player did or did not ship against.
 * **Sound**, procedural and quiet: a wind bed that thickens through winter, a
   pen scratch for every mark that goes onto the paper during resolution, a low
   tone on a shortfall, a heavier one on a loss, and one warm note on an arrival
@@ -250,14 +274,15 @@ problem — a hand-drawn chart that has to stay at 60 fps while it is dragged.
 
 ## Frame budget
 
-Measured headless at 1280 × 720, seed 3, in milliseconds per frame:
+Measured headless at 1280 × 720, seed 3, in milliseconds per frame, on a chart
+at year six with the marks of six years on it:
 
 | | median | worst |
 |---|---|---|
-| idle, at CHART and at FOCUS | 6.0 | 8.8 |
-| dragging 600 px | 14.7 | 23.4 |
-| a five-notch zoom | 11.7 | 27.1 |
-| the season re-ink, over its second | 14.8 | 26.8 |
+| idle, at CHART and at FOCUS | 7.2 | 10.0 |
+| dragging 600 px | 17.1 | 23.7 |
+| a five-notch zoom | 12.8 | 28.1 |
+| the season re-ink, over its second | 16.7 | 27.2 |
 
 A full re-ink of the sheet is about 90 ms of work, which is why it is never
 done in one frame. The dials are `PAN_QUANTUM` (how much margin the bitmap

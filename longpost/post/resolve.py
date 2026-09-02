@@ -162,6 +162,9 @@ def _lose(result, world, runner, edge, year, season, at, gone=False):
 
 
 def _leg_name(world, edge) -> str:
+    """What the leg is called. A chart names its waters."""
+    if edge.name:
+        return edge.name
     return (f"{world.settlements[edge.a].name.lower()} — "
             f"{world.settlements[edge.b].name.lower()} leg")
 
@@ -492,7 +495,8 @@ def _eat(context):
         if not settlement.alive:
             continue
         settlement.produce()
-        settlement.consume()
+        settlement.consume(hard=context.world.winters.get(context.year, 1.0)
+                           if context.season == "WINTER" else 1.0)
         if not any(leg.destination == settlement.id and leg.cargo and leg.arrived
                    for leg in context.result.legs):
             settlement.seasons_since_delivery += 1

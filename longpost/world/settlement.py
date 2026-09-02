@@ -42,6 +42,7 @@ class Settlement:
     received: dict = field(default_factory=dict)    # from the post, this year
     deaths: list = field(default_factory=list)      # (year, count)
     seasons_since_delivery: int = 0
+    winter_factor: float = 1.0     # how hard the coming winter is
 
     def __post_init__(self):
         if not self.stores:
@@ -81,11 +82,15 @@ class Settlement:
         for good in self.surplus:
             self.stores[good] = self.stores.get(good, 0.0) + self.produces(good)
 
-    def consume(self):
-        """Needs are consumed continuously; what is missing is remembered."""
+    def consume(self, hard=1.0):
+        """Needs are consumed continuously; what is missing is remembered.
+
+        A hard winter burns more of everything, and the panel has been saying
+        so since the autumn.
+        """
         missing = {}
         for good in GOODS:
-            want = self.season_need(good)
+            want = self.season_need(good) * hard
             have = self.stores.get(good, 0.0)
             taken = min(want, have)
             self.stores[good] = have - taken
@@ -103,7 +108,10 @@ class Settlement:
         """
         out = {}
         for good in GOODS:
-            want = self.season_need(good) * seasons_left
+            # of the seasons left before the check, the last one is the winter,
+            # and this year's winter is as hard as the autumn report said
+            want = self.season_need(good) * (max(0, seasons_left - 1)
+                                             + self.winter_factor)
             gap = want - self.stores.get(good, 0.0) + self.shortfall[good]
             if gap > 0.01:
                 out[good] = round(gap, 1)
