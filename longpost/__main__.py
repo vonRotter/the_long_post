@@ -21,6 +21,7 @@ from .render import ending, ink, words
 from .render.vignette import Vignettes
 from .sound import Sound
 from .render.chart_view import ChartView
+from .render.menu import Menu
 from .render.log import Log
 from .render.panel import Panel
 from .world import map as world_map
@@ -74,7 +75,8 @@ class Game:
         self.log = Log(T.LOG_RECT)
         self.overlay = Overlay()
         self.vignettes = Vignettes()
-        self.sound = Sound(seed=seed)
+        # whether the sound is on is the player's, and outlives the run
+        self.sound = Sound(seed=seed, muted=bool(record.setting("muted", False)))
         self.sound.set_season(self.season)
         self.chart.season = self.season
         self.chart.game = self
@@ -596,11 +598,32 @@ def main(argv=None):
     paper = ink.make_paper((T.WINDOW_W, T.WINDOW_H), seed)
     grain = ink.make_grain((T.WINDOW_W, T.WINDOW_H), seed)
 
+    menu = Menu()
     dragging = False
     running = True
     while running:
         dt = clock.tick(T.FPS) / 1000.0
         for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                continue
+            if menu.open:
+                # the card has the keyboard and the mouse while it is up
+                asked = menu.handle(event, game)
+                if asked == "quit":
+                    running = False
+                elif asked == "resume":
+                    saved = record.read(record.path_for(game.seed))
+                    if saved is not None:
+                        game.sound.stop()
+                        game = record.resume(saved, Game)
+                        game.log.write("the run was taken up again.",
+                                       game.year, game.season)
+                    menu.close()
+                continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                menu.toggle()
+                continue
             running = handle(event, game) and running
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 dragging = game.chart.rect.collidepoint(event.pos)
@@ -611,7 +634,8 @@ def main(argv=None):
                 game.chart.camera.pan_screen(*event.rel)
                 game.camera_taken = True
 
-        game.update(dt)
+        # a season does not resolve behind the card
+        game.update(0.0 if menu.open else dt)
         game.chart.update(dt)
 
         screen.blit(paper, (0, 0))
@@ -630,6 +654,7 @@ def main(argv=None):
             # the chart is still visible behind the frame; the world does not
             # stop for this
             game.vignettes.draw(screen)
+        menu.draw(screen, game)
         # the sheet's grain lies on top of the ink, not under it
         screen.blit(grain, (0, 0), special_flags=pygame.BLEND_MULT)
         pygame.display.flip()
@@ -679,7 +704,7 @@ def handle(event, game) -> bool:
     if event.type != pygame.KEYDOWN:
         return True
 
-    if event.key in (pygame.K_ESCAPE, pygame.K_q):
+    if event.key == pygame.K_q:
         return False
 
     # the camera answers in every phase; the game never takes it away
@@ -699,7 +724,7 @@ def handle(event, game) -> bool:
     elif event.key == pygame.K_F5:
         game.save()
     elif event.key == pygame.K_m:
-        game.sound.toggle_mute()
+        record.remember_setting("muted", bool(game.sound.toggle_mute()))
     elif event.key in (pygame.K_F1, pygame.K_F2):
         game.overlay.toggle(event.key)
     elif game.phase == game.RESOLVE:
@@ -711,7 +736,7 @@ def handle(event, game) -> bool:
         game.phase = game.SUMMARY
         game.summary = summary_mod.build(game)
     elif game.phase == game.SUMMARY:
-        return False
+        return True
     elif event.key == pygame.K_SPACE:
         if game.phase == game.LAST_RUN:
             game.commit_last_run()

@@ -108,3 +108,37 @@ def resume(saved, make_game):
         if game.phase == game.LAST_RUN:
             break
     return game
+
+
+# --- what the player set, rather than what they did -------------------------
+#
+# Not part of the run. A save is the seed and the orders; whether the sound is
+# on is a property of the machine the game is being played on, so it is kept
+# beside the saves and read at startup.
+
+def settings_path() -> pathlib.Path:
+    directory = pathlib.Path(T.SAVE_DIRECTORY).expanduser()
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / "settings.json"
+
+
+def settings() -> dict:
+    try:
+        return json.loads(settings_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def setting(name, fallback=None):
+    return settings().get(name, fallback)
+
+
+def remember_setting(name, value):
+    """Best effort. A read-only disk is not a reason to stop the game."""
+    kept = settings()
+    kept[name] = value
+    try:
+        settings_path().write_text(json.dumps(kept, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+    return kept

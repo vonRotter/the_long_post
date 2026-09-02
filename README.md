@@ -11,6 +11,10 @@ pip install -r requirements.txt
 python -m longpost            # or: python -m longpost <seed>
 ```
 
+On Windows, `startgame.bat` does the same by double-click: it finds Python,
+offers to install the two dependencies if they are missing, and passes any
+arguments through (`startgame.bat 7 --resume`).
+
 Python 3.11+, `pygame` and `numpy` only, plus the one `.ttf` in
 `longpost/data/`. No build step.
 
@@ -29,11 +33,18 @@ pytest -m ""        # everything
 | drag | pan |
 | right click | look at a settlement or a leg |
 | `f` | fit the whole chart |
-| `m` | mute |
+| `m` | sound off and on — the switch is remembered |
 | `s` | keep this route — it runs itself until stopped |
 | `d` | dig at a collapsed line · `b` breed, in summer |
 | `F5` / `--resume` | write the run down · take it up again |
-| `esc`, `q` | leave |
+| `esc` | the card: sound, saving, the keys, giving up |
+| `q` | leave at once |
+
+`esc` no longer closes the window. It lifts a small card onto the chart —
+carry on, sound, write the run down, take a written one up, the keys, give the
+run up — drawn in the same hand as everything else, and the last of those has
+to be asked for twice. Whether the sound is on is a property of the machine
+rather than of the run, so it is kept beside the saves and read at startup.
 
 Debug: `F1` edge terrain, travel days, season profile and danger · `F2`
 desperation and standing · `F3` reseed · `F4` watch the last season again.
