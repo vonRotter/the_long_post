@@ -179,7 +179,7 @@ def test_a_lost_courier_stays_in_the_panel_with_their_record():
     assert runner.lost_where
     assert runner.history()                 # the record is still there
     assert (2, runner.name) in edge.losses  # and the leg carries the mark
-    said = [line for _at, line, _accent in result.lines]
+    said = [line for _at, line, _accent, _routine in result.lines]
     assert len(said) == 1, "a loss is one plain sentence and no more"
     for word in ("tragic", "sadly", "bravely", "heroic"):
         assert word not in said[0].lower()

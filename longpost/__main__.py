@@ -45,13 +45,17 @@ class Game:
         self.couriers = self._first_couriers()
         self.foals = []               # (year of use, kind, where)
         self.plan = assign.Plan()
+        self.standing = assign.Standing()
         self.resolution = None
         self.last_resolution = None   # kept for F4, and for reading afterwards
+        self.plan_at_commit = {}
         self.resolve_t = 0.0
 
         self.selected_edge = None
         self.selected_carrier = None
         self.selected_courier = None
+        # a standing route may name a courier, or take whoever is fit
+        self.pin_courier = False
 
         self.chart = ChartView(T.CHART_RECT, self.world)
         self.panel = Panel(T.PANEL_RECT)
@@ -214,6 +218,34 @@ class Game:
         if order.total() <= 0:
             self.plan.clear_carrier(carrier.id)
 
+    def toggle_standing(self):
+        """Keep this route, or stop keeping it.
+
+        Available from the first turn. It becomes necessary somewhere around
+        the ninth active leg, which is the honest version of that transition:
+        the network outgrows the player's attention rather than unlocking
+        something.
+        """
+        edge, carrier = self.selected_edge, self.selected_carrier
+        if edge is None or carrier is None:
+            return
+        if self.standing.for_carrier(carrier.id) is not None:
+            self.standing.clear_carrier(carrier.id)
+            self.log.write(f"{carrier.name} no longer keeps the"
+                           f" {self._leg_words(edge)}.", self.year, self.season)
+            return
+        runner = self.selected_courier
+        self.standing.set(assign.StandingOrder(
+            edge_id=edge.id, carrier_id=carrier.id,
+            courier_id=runner.id if runner is not None and self.pin_courier else -1,
+            started_year=self.year))
+        self.log.write(f"{carrier.name} keeps the {self._leg_words(edge)}.",
+                       self.year, self.season)
+
+    def _leg_words(self, edge) -> str:
+        return (f"{self.world.settlements[edge.a].name.lower()} — "
+                f"{self.world.settlements[edge.b].name.lower()} leg")
+
     def toggle_digging(self):
         """Put this season's team on the excavation instead of the water."""
         edge, carrier = self.selected_edge, self.selected_carrier
@@ -273,6 +305,12 @@ class Game:
         """Irreversible. The season resolves."""
         if self.phase != self.PLAN:
             return
+        _made, notices = assign.standing_orders(self.world, self.fleet, self.couriers,
+                                                self.standing, self.season, self.plan)
+        for notice in notices:
+            self.log.write(notice, self.year, self.season)
+        # what was actually committed, kept so the season can be read back
+        self.plan_at_commit = dict(self.plan.orders)
         self.resolution = resolve_mod.resolve(self.world, self.fleet, self.couriers,
                                               self.plan, self.turn, self.year,
                                               self.season)
@@ -301,7 +339,8 @@ class Game:
             return
         self.resolve_t += dt
         share = self.resolve_t / max(self.resolution.duration, 1e-6)
-        lines = self.resolution.lines_before(min(share, 1.0))
+        lines = self.resolution.lines_before(min(share, 1.0),
+                                             exceptions_only=len(self.standing) > 0)
         while self._shown_lines < len(lines):
             text, accent = lines[self._shown_lines]
             self.log.write(text, self.year, self.season, accent=accent)
@@ -460,6 +499,10 @@ def handle(event, game) -> bool:
         game.toggle_digging()
     elif event.key == pygame.K_b:
         game.breed()
+    elif event.key == pygame.K_s:
+        game.toggle_standing()
+    elif event.key == pygame.K_p:
+        game.pin_courier = not game.pin_courier
     elif event.key == pygame.K_TAB:
         edges = [e for e in game.world.known_edges() if e.is_usable(game.season)]
         if edges:

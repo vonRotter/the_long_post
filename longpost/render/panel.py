@@ -82,6 +82,7 @@ class Panel:
         order = tuple(sorted((o.carrier_id, o.courier_id, o.edge_id, o.total())
                              for o in game.plan))
         return (game.turn, game.phase, len(game.couriers), len(game.fleet),
+                len(game.standing), tuple(r.runs for r in game.standing),
                 id(game.selected_edge), id(game.selected_carrier),
                 id(game.selected_courier), order,
                 tuple(s.population for s in game.world.known_settlements()),
@@ -100,6 +101,7 @@ class Panel:
             y = 4
             y = self._draw_leg(body, x, y, game)
             y = self._draw_fleet(body, x, y, game)
+            y = self._draw_standing(body, x, y, game)
             y = self._draw_couriers(body, x, y, game)
             y = self._draw_settlements(body, x, y, game)
             self.reach = y
@@ -251,6 +253,31 @@ class Panel:
                                f" {load or 'nothing'}", size=9, alpha=alpha - 30)
         return y + 4
 
+    # --- the routes the post keeps ---
+    def _draw_standing(self, layer, x, y, game):
+        if not len(game.standing):
+            return y
+        y = self._heading(layer, x, y, "routes kept")
+        for route in game.standing:
+            edge = game.world.edges[route.edge_id]
+            carrier = game.fleet[route.carrier_id]
+            who = ("whoever is fit" if route.courier_id < 0
+                   else game.couriers[route.courier_id].name)
+            self._line(layer, x, y,
+                       f"· {game.world.settlements[edge.a].name.lower()} — "
+                       f"{game.world.settlements[edge.b].name.lower()}", size=11,
+                       alpha=205)
+            self._right(layer, y, f"{route.runs} runs", size=9, alpha=150)
+            y += 13
+            y = self._line(layer, x + 10, y, f"{carrier.name}, {who}", size=9,
+                           alpha=150)
+            if route.idle:
+                y = self._line(layer, x + 10, y,
+                               f"nothing sent for {words.count(route.idle, 'season')}",
+                               size=9, alpha=180, colour=T.OXIDE)
+            y += 3
+        return y + 4
+
     # --- the couriers, and the record of them ---
     def _draw_couriers(self, layer, x, y, game):
         world = game.world
@@ -342,7 +369,7 @@ class Panel:
             lines = ("the season is running", "any key — let it be told at once")
         else:
             lines = ("click a leg · tab next · c carrier · v courier · l load",
-                     "1-5 add, shift remove · x clear · d dig · b breed",
+                     "1-5 add, shift remove · x clear · s keep · d dig · b breed",
                      "space — commit the season · wheel scrolls · f fit · f1-f3")
         for line in lines:
             lettering.draw(layer, line, (x, y), size=9, alpha=125)

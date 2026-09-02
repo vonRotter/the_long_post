@@ -36,7 +36,7 @@ desperation and standing · `F3` reseed.
 
 Built: **A0 — Ink**, **M0 / A1 / A2 — Chart, turns, free zoom**,
 **M1 — Shipping**, **M2 — the desperation gate**, **M3 — Couriers and loss**,
-and **M4 — the long game.**
+**M4 — the long game**, and **M5 — delegation and scale.**
 
 * `render/ink.py` — the five primitives (wobbled line, curve, hatch, stipple,
   mark), the generated chart paper, and the one ruled line the game allows.
@@ -69,6 +69,13 @@ and **M4 — the long game.**
   desperation, the desperation on the route, and how little the destination
   needs the load — every one of which is on the panel before the season is
   committed, and never fires on fewer than two of them.
+* **Delegation.** A route can be kept: a carrier, a leg, and either a named
+  courier or whoever is fit and standing there. It runs itself every season the
+  route is open, and it reports by exception — what went wrong, what went
+  unusually well, and anything that changed for the worse about a courier. The
+  seasons that go as they were meant to are counted, not recited. It is
+  available from the first turn and simply becomes necessary, which is the
+  honest version of that transition.
 * **The long game.** A collapsed line under a pass or a sound can be dug out:
   ten seasons of a courier and their team not carrying anything, and thirty
   loads of tools and twenty of fuel carried to whichever end they are standing
@@ -88,8 +95,7 @@ and **M4 — the long game.**
 * `render/panel.py`, `render/log.py` — numbers in the panel, never on the
   chart; plain declarative lines in the log.
 
-Not built yet: delegation and standing orders, the vignettes, the ending.
-Those are M5, M6, and A4–A5.
+Not built yet: the vignettes and the ending. Those are M6, and A4–A5.
 
 ### Tests
 
@@ -107,6 +113,9 @@ is moved and never created, the hold is the limit, a closed leg is refused) ·
 `tests/test_desperation.py` (monotonic in every input, a calm map has no
 dangerous road, serving a settlement calms the roads beside it, and no load is
 ever taken on a leg the panel called safe) ·
+`tests/test_delegation.py` (a kept route runs itself, never overrules an order
+the player gave, reports a stall once and then stops repeating it, and brings a
+courier who is wearing down back to the player's attention) ·
 `tests/test_kindness.py` (120 headless runs: a player who always serves the
 settlements the arithmetic has ended does not beat one who never does, on
 population, settlements, standing, recruits, roads or desperation) ·
