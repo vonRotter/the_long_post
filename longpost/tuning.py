@@ -1,0 +1,356 @@
+"""Every constant in the game.
+
+Nothing here is derived at runtime and nothing outside this module invents a
+number. The build spec requires all tuning to live in one place.
+"""
+
+# --- window ---------------------------------------------------------------
+
+WINDOW_W = 1280
+WINDOW_H = 720
+FPS = 60
+TITLE = "The Long Post"
+
+# Chart on the left, panel on the right, log along the bottom.
+PANEL_W = 340
+LOG_H = 140
+CHART_RECT = (0, 0, WINDOW_W - PANEL_W, WINDOW_H - LOG_H)
+PANEL_RECT = (WINDOW_W - PANEL_W, 0, PANEL_W, WINDOW_H)
+LOG_RECT = (0, WINDOW_H - LOG_H, WINDOW_W - PANEL_W, LOG_H)
+
+# --- paper and ink --------------------------------------------------------
+
+PAPER_BASE = (232, 226, 212)      # warm off-white
+PAPER_FIBRE = 5                   # coarse fibre amplitude
+PAPER_GRAIN = 4                   # fine grain amplitude
+PAPER_VIGNETTE = 0.20             # darkening toward the edges
+PAPER_STAINS = (3, 5)             # count range, placed per seed
+
+INK = (26, 28, 34)                # near-black, cold-leaning, never pure black
+OXIDE = (146, 62, 48)             # the one accent, corrections and losses only
+
+# weight -> (passes, alphas, offset spread in px)
+INK_WEIGHTS = {
+    "faint":      (1, (70,), 0.0),
+    "normal":     (2, (95, 165), 0.5),
+    # the post's own lines: legs and settlements, re-inked oftener than the
+    # coast around them, and the thing the chart is actually about
+    "route":      (2, (150, 215), 0.55),
+    # a leg the post has used and used again, re-inked until the paper knows it
+    "worn":       (3, (140, 200, 240), 0.75),
+    "heavy":      (3, (110, 175, 235), 0.9),
+    "correction": (3, (150, 205, 250), 1.4),
+}
+
+INK_SEGMENT_PX = 8.0              # subdivision length of a stroke
+INK_WOBBLE_BASE = 0.55            # px of displacement, short lines
+INK_WOBBLE_PER_PX = 0.010         # extra displacement per px of length
+INK_WOBBLE_MAX = 4.5
+INK_ENDPOINT_WEIGHT = 1           # extra deposit passes at pen start and stop
+
+HATCH_SPACING_MIN = 3.0           # px between hatch lines at density 1.0
+HATCH_SPACING_MAX = 22.0          # px between hatch lines at density 0.0
+
+# How many runs it takes for a leg to look like a road the post keeps: the
+# chart darkens what the player actually uses, and by year eight the habitual
+# network is visibly worn into the paper.
+ROUTE_WORN = 5
+ROUTE_HEAVY = 14
+
+# --- camera ---------------------------------------------------------------
+
+ZOOM_CHART = 1.0                  # the whole network
+ZOOM_FOCUS = 6.0                  # one edge or one settlement
+ZOOM_MIN = 0.55
+ZOOM_MAX = 9.0
+ZOOM_STEP = 1.16                  # per wheel notch or +/- press
+CAMERA_EASE = 0.24                # ease-out per frame toward the target
+CAMERA_SNAP = 0.35                # px/zoom epsilon below which the ease ends
+
+# Detail arrives progressively; these are the thresholds it arrives at.
+DETAIL_NAMES = 0.8
+DETAIL_ROOFS = 3.0
+DETAIL_HULLS = 2.2
+DETAIL_MEASURE = 3.4
+DETAIL_HACHURE = 1.5      # below this, high ground is drawn as contours only
+
+# --- world ----------------------------------------------------------------
+
+WORLD_W = 2800.0
+WORLD_H = 1650.0
+
+SETTLEMENTS_START = 5
+SETTLEMENTS_MAX = 20
+SETTLEMENT_MIN_SPACING = 360.0
+SETTLEMENT_PLACEMENT_TRIES = 9000
+SETTLEMENT_COAST_BAND = 170.0     # within this of the shore is a coastal site
+SETTLEMENT_INLAND_CHANCE = 0.4    # how often a site well inland is taken anyway
+
+# Settlements are not the same size. Most of the north lives in a handful of
+# towns and the rest in places of a few hundred, so the draw is skewed: the
+# exponent decides how rare the big ones are.
+POP_SMALLEST = 150
+POP_LARGEST = 1600
+POP_SKEW = 2.6
+STANDING_START = 55
+STANDING_TOOK_IT_HOME = 6.0       # a settlement's regard, after a load reached it
+
+# Winters are not all the same, and the coming one is said plainly in autumn:
+# a hard winter burns more fuel and eats more grain, and the panel's projected
+# shortfall carries it, so the player is never surprised by one.
+WINTER_SEVERITY = (0.85, 1.30)    # mild to hard
+WINTER_HARD = 1.12                # above this the autumn report calls it hard
+WINTER_MILD = 0.95                # and below this, mild
+
+# --- the economy ----------------------------------------------------------
+
+# A settlement produces its surplus goods at this multiple of its own yearly
+# need for them. Nobody produces everything, which is why the network exists.
+SURPLUS_RATE = 2.6
+STORES_AT_START = 0.70            # fraction of a year's need already held
+
+# What a shortfall costs, at the end of winter. Weighted by good: nobody dies
+# of a tool shortage, and a winter without fuel is nearly a winter without
+# grain. In head-years unsupplied.
+# A settlement given nothing at all for a year loses the sum of these, as a
+# share of its people. Grain is most of it; nobody dies of a tool shortage.
+SHORTFALL_DEATHS = {"GRAIN": 0.100, "FUEL": 0.055, "MEDICINE": 0.025,
+                    "TOOLS": 0.0, "POST": 0.0}
+# Below this, at the end of a winter, a settlement is given up: too few people
+# left to hold the place through another one. It is also what makes a
+# settlement doomed in advance — see Settlement.doomed and the spec's §3.9.
+ABANDON_POPULATION = 60
+
+# The land is a coast: open sea to the west, and a shore of skerries, islands
+# and fjords giving onto high ground in the east. All of it is one noise field
+# read at several levels — see world/terrain.py.
+TERRAIN_CELL = 9.0                # world units per elevation cell
+SEA_LEVEL = 0.50
+MOUNTAIN_LEVEL = 0.78
+# How the ground rises from west to east: (across the sheet, height). The long
+# middle section sits just under the waterline, which is what makes the outer
+# archipelago a belt of rock and sounds rather than an edge.
+COAST_PROFILE = ((0.00, 0.00), (0.22, 0.04), (0.42, 0.40), (0.60, 0.58),
+                 (0.80, 0.90), (1.00, 1.00))
+COAST_GRADIENT = 0.28             # how much of the height is that rise
+COAST_BASE = (7, 6)               # the largest features, in cells across
+COAST_STRETCH = 1.6               # features elongated east to west: fjords
+COAST_ROUGHNESS = 0.66            # how much the fine octaves carry
+COAST_SHELF = 0.70                # ground squeezed toward the waterline
+SKERRY_AMOUNT = 0.26              # how hard the shallows break into rock
+SKERRY_DEPTH = 0.055              # how far below the waterline that happens
+SKERRY_BAND = 0.075               # and over what depth of water
+COAST_WARP = 150.0                # world units the ground is warped before read
+
+DEPTH_LEVELS = (0.035, 0.085)     # contours below the shore, out at sea
+SHORE_LEVELS = (0.030,)           # contours above it, behind the shore
+MIN_ISLAND_AREA = 900.0           # smaller loops than this are not inked
+
+EDGE_NEIGHBOURS = 3               # k-nearest candidate edges per settlement
+EDGE_MAX_LENGTH = 950.0
+TRAVEL_DAYS_PER_UNIT = 0.022      # world units -> travel days
+ICE_ROAD_MAX_LENGTH = 600.0       # sea crossings longer than this never freeze
+TUNNEL_SITE_CHANCE = 0.22         # edges carrying a collapsed pre-collapse line
+
+# --- desperation, and the roads it makes dangerous -----------------------
+
+# What the pressure model weighs. All four pressures push up, relief pulls
+# down, and nothing else touches it — see world/desperation.py.
+DESPERATION_WEIGHTS = {
+    "hunger": 0.85,
+    "isolation": 0.50,
+    "grief": 0.55,
+    "bereavement": 0.30,
+    "relief": 0.70,
+}
+DESPERATION_HUNGER_GOODS = {"GRAIN": 1.0, "FUEL": 0.6, "MEDICINE": 0.25}
+DESPERATION_ISOLATION = 6.0       # seasons without a delivery to reach the top
+DESPERATION_POST_RELIEF = 0.22    # what letters are worth, beyond their weight
+DESPERATION_RISE = 0.45           # how fast it climbs toward its pressures
+DESPERATION_FALL = 0.28           # and how much more slowly it comes down
+DESPERATION_REFUSAL = 92.0        # at the extreme, a settlement keeps what it has
+DESPERATION_WATCH_RADIUS = 500.0  # how far its desperation reaches down a road
+
+# Terrain and season scale what desperation has already caused; they never
+# create danger on their own. A finished tunnel is zero, forever.
+DANGER_TERRAIN = {"INLAND": 1.0, "PASS": 1.15, "COAST": 0.5, "ICE": 0.75,
+                  "TUNNEL": 0.0}
+DANGER_SEASON = {"AUTUMN": 1.0, "WINTER": 1.15, "SPRING": 1.05, "SUMMER": 0.85}
+DANGER_THRESHOLD = 0.30           # below this a settlement watches nobody
+HAZARD_SCALE = 0.75               # chance of a load being taken, at full danger
+
+# Bands, not numbers: the panel says calm, strained, desperate — and safe,
+# watched, dangerous. The numbers behind them are in the debug overlay (§6.2,
+# settled at M2: bands preserve tension, numbers preserve trust, and the
+# overlay is where trust is checked).
+BAND_CALM = 0.30
+BAND_STRAINED = 0.62
+BAND_ROAD_SAFE = 0.12
+BAND_ROAD_HARD = 0.38
+
+# --- couriers -------------------------------------------------------------
+
+# A courier is a name, a condition, a loyalty, a home and a history. These are
+# all the numbers there are, and every one of them is on the panel.
+COURIERS_AT_START = 4
+CONDITION_UNFIT = 25.0            # below this they are not sent out
+CONDITION_WEAR_RUN = 7.0
+CONDITION_WEAR_HARD = 7.0         # a leg the season calls hard
+CONDITION_WEAR_PER_DAY = 0.55
+CONDITION_REST = 11.0             # a season standing still
+CONDITION_WEAR_CONSECUTIVE = 0.25  # each season run without one off costs more
+# A courier run into the ground may not come back. The chance is read off
+# their condition and the road they were sent down — both of them bands on the
+# panel before the season was committed.
+LOSS_FROM_CONDITION = 0.20
+LOSS_FROM_DANGER = 0.10
+
+LOYALTY_WEAR_RUN = 1.5
+LOYALTY_WEAR_HARD = 3.0
+LOYALTY_REST = 3.5
+LOYALTY_HOME = 9.0                # the post serving where they are from
+LOYALTY_HOME_NEGLECT = 2.0        # and the years it does not
+
+# Route familiarity: a real, small bonus for a leg run before, and a visible
+# count of the runs behind it.
+FAMILIARITY_PER_RUN = 0.045
+FAMILIARITY_CAP = 0.35
+
+# Recruitment. Couriers are scarce and mostly come from settlements that have
+# nothing left to keep their people — which is a grim source of labour and is
+# meant to feel like one (§6.1, settled at M3).
+RECRUIT_DESPERATION = 45.0        # below this, nobody is looking for the work
+RECRUIT_CHANCE = 0.30             # per desperate settlement, per year
+RECRUIT_STANDING = 35.0           # and only where the post is still trusted
+
+# Theft. Every pressure here is visible on the panel before the assignment.
+THEFT_WEIGHTS = {
+    "disloyalty": 0.40,
+    "condition": 0.20,
+    "home need": 0.55,
+    "route need": 0.30,
+    "cargo": 0.25,
+}
+THEFT_SCALE = 0.5                 # the whole thing, at every pressure at once
+THEFT_PRESSURES_NEEDED = 2        # never fires on fewer than this many
+THEFT_FLOOR = 0.30                # and a pressure below this is not a pressure
+
+# --- the long game --------------------------------------------------------
+
+# Tunnels: the only permanent thing. A collapsed line under a pass or a sound,
+# dug out over many seasons by people who are then not carrying anything. It
+# is priced so the post can afford one, maybe two, in ten years, and choosing
+# which leg deserves it is the largest decision on the chart.
+TUNNEL_LABOUR = 10                # seasons of a courier and their team
+TUNNEL_TOOLS = 30                 # loads, delivered to either end as it goes
+TUNNEL_FUEL = 20
+TUNNEL_PER_SEASON = 1.0           # progress a season of labour buys
+
+# Post: it weighs nothing and it is the first thing dropped. A network that
+# never carries letters finds, around year four, that nobody will work for it
+# and every road is watched.
+STANDING_POST = 7.0               # both ends of the route, per delivery
+STANDING_GOODS = 2.5
+STANDING_DECAY = 1.6              # a season with nothing from the post
+STANDING_NEWS = 72.0              # above this, a settlement tells the post
+                                  # about a neighbour it has not found
+
+# Breeding: in summer, and a foal is three years from being any use. This is
+# the long-horizon investment, and it should be made in year two by a player
+# who has understood the game.
+BREED_SEASON = "SUMMER"
+BREED_GRAIN = 12                  # loads, at the settlement doing the breeding
+BREED_YEARS = 3
+
+# --- seasons --------------------------------------------------------------
+
+SEASONS = ("AUTUMN", "WINTER", "SPRING", "SUMMER")
+YEARS = 10
+TURNS = YEARS * len(SEASONS)      # a full run is 40 turns
+START_YEAR = 1
+
+OPEN, HARD, CLOSED = "OPEN", "HARD", "CLOSED"
+
+# terrain -> availability per season
+SEASON_PROFILES = {
+    "COAST":  {"AUTUMN": OPEN,   "WINTER": CLOSED, "SPRING": HARD,   "SUMMER": OPEN},
+    "INLAND": {"AUTUMN": OPEN,   "WINTER": HARD,   "SPRING": HARD,   "SUMMER": OPEN},
+    "PASS":   {"AUTUMN": OPEN,   "WINTER": HARD,   "SPRING": CLOSED, "SUMMER": OPEN},
+    "ICE":    {"AUTUMN": CLOSED, "WINTER": OPEN,   "SPRING": CLOSED, "SUMMER": CLOSED},
+    "TUNNEL": {"AUTUMN": OPEN,   "WINTER": OPEN,   "SPRING": OPEN,   "SUMMER": OPEN},
+}
+
+# How far the view may pan before the cached document is re-inked.
+#
+# Panning does not change the chart, it translates it. So the document is
+# re-inked at an offset rounded to this grid, onto a surface this much larger
+# than the chart rect, and blitted back at the difference: a drag re-inks once
+# every 160 px of travel instead of once a frame. Borrowed from map maker.
+PAN_QUANTUM = 260
+
+# The ground layer's re-ink is spread over frames, this many milliseconds at a
+# time, so no single frame pays for the whole sheet.
+INK_SLICE_MS = 7.0
+
+# While a zoom is still easing, the cached document is scaled rather than
+# re-inked, and re-inked once the camera settles.
+ZOOM_SETTLE = 0.004
+
+# --- the ending ------------------------------------------------------------
+
+# The run ends when the network can no longer hold itself together, or when
+# ten years are up — and in a well-played run it is the latter, with the
+# population still falling.
+CONNECTED_MINIMUM = 3             # settlements still reachable from each other
+
+# The last run has its own treatment: one carrier, one leg, one cargo, played
+# at FOCUS and uninterrupted, and then the view pulls back to the whole chart.
+LAST_RUN_SECONDS = 9.0
+PULL_BACK_SECONDS = 4.0
+
+# --- vignettes -------------------------------------------------------------
+
+# A glance, not an elegy. Two seconds and dismissible immediately; the arrival
+# is allowed a little longer because it is the counterweight and the only one
+# that is not a loss. If a vignette feels like the game asking for a reaction,
+# it is too long.
+VIGNETTE_SECONDS = 2.0
+VIGNETTE_ARRIVAL_SECONDS = 2.4
+VIGNETTE_SIZE = (520, 300)
+VIGNETTE_ARRIVAL_NEED = 0.35      # the share of a year's need a load must close
+
+# --- motion ---------------------------------------------------------------
+
+REDRAW_SECONDS = 1.0              # the season change re-inks the chart
+RESOLVE_SECONDS = 6.0
+
+# --- sound ------------------------------------------------------------------
+
+# Procedural, and quiet. The pen scratch is the one that matters: it says that
+# everything on screen is being written down. Everything else sits under it.
+SOUND_CHANNELS = 12
+SOUND_WIND = 0.16
+SOUND_SCRATCH = 0.22
+SOUND_SHORTFALL = 0.20
+SOUND_LOSS = 0.26
+SOUND_ARRIVAL = 0.18
+
+# The bed thickens through winter and thins again by summer.
+SOUND_SEASON_WIND = {"AUTUMN": 0.55, "WINTER": 1.0, "SPRING": 0.7, "SUMMER": 0.35}
+
+# --- saving -----------------------------------------------------------------
+
+# A save is the seed and the orders committed against it, and a load is the run
+# playing itself back. It works because the game is deterministic; it is also
+# the thing that would catch it if that ever stopped being true.
+SAVE_DIRECTORY = "saves"
+
+# --- log ------------------------------------------------------------------
+
+LOG_LINES_KEPT = 400
+LOG_LINES_SHOWN = 7
+
+# room kept at the head of the panel for the report, and at the foot for
+# the key list. Everything between them scrolls as one document.
+PANEL_HEAD_HEIGHT = 150
+PANEL_KEYS_HEIGHT = 58
